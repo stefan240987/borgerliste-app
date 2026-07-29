@@ -1449,6 +1449,74 @@ def _light_theme_tooltip_css(scope: str = "") -> str:
 """
 
 
+def _dark_theme_field_css(scope: str = "") -> str:
+    sp = f"{scope} " if scope else ""
+    return f"""
+{sp}div[data-testid="stTextInput"] input,
+{sp}div[data-baseweb="input"] input,
+{sp}div[data-testid="stSelectbox"] [data-baseweb="select"],
+{sp}div[data-testid="stSelectbox"] div[data-baseweb="select"],
+{sp}div[data-testid="stMultiSelect"] div[data-baseweb="select"],
+{sp}div[data-baseweb="select"] > div,
+{sp}div[data-baseweb="select"] {{
+    background-color: #1E293B !important;
+    color: #F8FAFC !important;
+    -webkit-text-fill-color: #F8FAFC !important;
+    border: 1px solid #334155 !important;
+    caret-color: #F8FAFC !important;
+}}
+
+{sp}div[data-testid="stSelectbox"] [data-baseweb="select"] *,
+{sp}div[data-baseweb="select"] div,
+{sp}div[data-baseweb="select"] span {{
+    color: #F8FAFC !important;
+    -webkit-text-fill-color: #F8FAFC !important;
+}}
+
+{sp}div[data-baseweb="select"] svg {{
+    fill: #F8FAFC !important;
+}}
+
+{sp}div[data-testid="stTextInput"] input::placeholder,
+{sp}div[data-baseweb="input"] input::placeholder {{
+    color: #94A3B8 !important;
+    -webkit-text-fill-color: #94A3B8 !important;
+    opacity: 1 !important;
+}}
+"""
+
+
+def _dark_theme_tooltip_css(scope: str = "") -> str:
+    sp = f"{scope} " if scope else ""
+    return f"""
+{sp}div[data-baseweb="tooltip"] > div,
+{sp}div[data-baseweb="popover"]:has([data-testid="stTooltipContent"]) > div,
+{sp}div[data-baseweb="popover"]:has(.stTooltipContent) > div,
+{sp}div[role="tooltip"],
+{sp}div[role="tooltip"] > div {{
+    background-color: #1E293B !important;
+    color: #F8FAFC !important;
+    border: 1px solid #334155 !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+}}
+
+{sp}div[data-baseweb="tooltip"],
+{sp}div[role="tooltip"] {{
+    color: #F8FAFC !important;
+}}
+
+{sp}[data-testid="stTooltipContent"],
+{sp}.stTooltipContent,
+{sp}[data-testid="stTooltipContent"] *,
+{sp}.stTooltipContent *,
+{sp}div[data-baseweb="tooltip"] *,
+{sp}div[role="tooltip"] * {{
+    color: #F8FAFC !important;
+    -webkit-text-fill-color: #F8FAFC !important;
+}}
+"""
+
+
 def _dark_theme_overrides_css() -> str:
     col_sel = _overview_columns_selector()
     overview_buttons = _overview_filter_button_selector()
@@ -1482,20 +1550,7 @@ def _dark_theme_overrides_css() -> str:
     box-shadow: none !important;
 }}
 
-.dark-theme div[data-testid="stSelectbox"] [data-baseweb="select"],
-.dark-theme div[data-testid="stSelectbox"] div[data-baseweb="select"],
-.dark-theme div[data-testid="stMultiSelect"] div[data-baseweb="select"],
-.dark-theme div[data-baseweb="select"] > div,
-.dark-theme div[data-baseweb="select"] {{
-    background-color: #1E293B !important;
-    color: #F8FAFC !important;
-    -webkit-text-fill-color: #F8FAFC !important;
-    border: 1px solid #334155 !important;
-}}
-
-.dark-theme div[data-baseweb="select"] svg {{
-    fill: #F8FAFC !important;
-}}
+{_dark_theme_field_css(".dark-theme")}
 
 {active_rules}
 """
@@ -2028,13 +2083,14 @@ def inject_styles(theme_choice: str) -> None:
     if theme_choice == "Browser standard":
         light = THEME_PALETTES["Lyst tema"]
         dark = THEME_PALETTES["Mørkt tema"]
-        css_parts.append(_themed_css_rules(light, light["input_bg"], media=None))
+        css_parts.append(_themed_css_rules(light, light["input_bg"], media="(prefers-color-scheme: light)"))
         css_parts.append(_themed_css_rules(dark, dark["input_bg"], media="(prefers-color-scheme: dark)"))
-        css_parts.append(_light_theme_overrides_css())
-        css_parts.append(_wrap_media(_light_theme_field_css(), "(prefers-color-scheme: light)"))
+        css_parts.append(_wrap_media(_light_theme_overrides_css(), "(prefers-color-scheme: light)"))
+        css_parts.append(_wrap_media(_light_theme_field_css("html:has(.stApp.light-theme)"), "(prefers-color-scheme: light)"))
         css_parts.append(_wrap_media(_light_theme_tooltip_css("html:has(.stApp.light-theme)"), "(prefers-color-scheme: light)"))
-        css_parts.append(_wrap_media(_light_theme_tooltip_css(), "(prefers-color-scheme: light)"))
         css_parts.append(_wrap_media(_dark_theme_overrides_css(), "(prefers-color-scheme: dark)"))
+        css_parts.append(_wrap_media(_dark_theme_field_css("html:has(.stApp.dark-theme)"), "(prefers-color-scheme: dark)"))
+        css_parts.append(_wrap_media(_dark_theme_tooltip_css("html:has(.stApp.dark-theme)"), "(prefers-color-scheme: dark)"))
     elif theme_choice in THEME_PALETTES:
         palette = THEME_PALETTES[theme_choice]
         is_light = theme_choice == "Lyst tema"
@@ -2043,10 +2099,11 @@ def inject_styles(theme_choice: str) -> None:
         if is_light:
             css_parts.append(_light_theme_overrides_css())
             css_parts.append(_light_theme_field_css())
-            css_parts.append(_light_theme_tooltip_css("html:has(.stApp.light-theme)"))
             css_parts.append(_light_theme_tooltip_css())
         else:
             css_parts.append(_dark_theme_overrides_css())
+            css_parts.append(_dark_theme_field_css())
+            css_parts.append(_dark_theme_tooltip_css())
 
     css = "<style>\n" + "\n".join(css_parts) + "\n</style>"
     st.markdown(css, unsafe_allow_html=True)

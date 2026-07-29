@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 DATA_DIR = Path(os.environ.get("BORGERLISTE_DATA_DIR", Path(__file__).resolve().parent / "data"))
 ACTIVE_LIST_PARQUET = DATA_DIR / "active_borgerliste.parquet"
@@ -1319,6 +1318,10 @@ def _overview_filter_button_selector(suffix: str = "") -> str:
     return _btn_any_selector(f"{_overview_columns_selector()}{suffix}")
 
 
+def _css_scope_prefix(scope: str) -> str:
+    return f"{scope} " if scope else ""
+
+
 def _kpi_filter_active_color_rules(theme_prefix: str) -> str:
     rules: list[str] = []
     for index, (_filter_key, color) in enumerate(FILTER_ACTIVE_COLORS.items(), start=1):
@@ -1342,15 +1345,19 @@ def _kpi_filter_active_color_rules(theme_prefix: str) -> str:
     return "\n".join(rules)
 
 
-def _light_theme_overrides_css() -> str:
+def _light_theme_overrides_css(scope: str = "") -> str:
+    sp = _css_scope_prefix(scope)
     col_sel = _overview_columns_selector()
     overview_buttons = _overview_filter_button_selector()
-    overview_secondary = _btn_secondary_selector(f".light-theme {col_sel}")
-    active_rules = _kpi_filter_active_color_rules(".light-theme")
+    overview_secondary = _btn_secondary_selector(f"{sp}{col_sel}".strip())
+    active_rules = _kpi_filter_active_color_rules(scope)
+    color_scheme_rule = (
+        f"{scope} {{ color-scheme: light !important; }}"
+        if scope
+        else ":root { color-scheme: light !important; }"
+    )
     return f"""
-.light-theme {{
-    color-scheme: light !important;
-}}
+{color_scheme_rule}
 
 {overview_secondary} {{
     background-color: #FFFFFF !important;
@@ -1359,7 +1366,7 @@ def _light_theme_overrides_css() -> str:
     -webkit-text-fill-color: #1F2937 !important;
 }}
 
-.light-theme {overview_buttons} {{
+{sp}{overview_buttons} {{
     height: 42px !important;
     min-height: 42px !important;
     max-height: 42px !important;
@@ -1375,8 +1382,8 @@ def _light_theme_overrides_css() -> str:
     box-shadow: none !important;
 }}
 
-.light-theme div[data-testid="stTextInput"] input,
-.light-theme div[data-baseweb="input"] input {{
+{sp}div[data-testid="stTextInput"] input,
+{sp}div[data-baseweb="input"] input {{
     background-color: #FFFFFF !important;
     color: #111827 !important;
     -webkit-text-fill-color: #111827 !important;
@@ -1384,8 +1391,8 @@ def _light_theme_overrides_css() -> str:
     caret-color: #111827 !important;
 }}
 
-.light-theme div[data-testid="stTextInput"] input::placeholder,
-.light-theme div[data-baseweb="input"] input::placeholder {{
+{sp}div[data-testid="stTextInput"] input::placeholder,
+{sp}div[data-baseweb="input"] input::placeholder {{
     color: #6B7280 !important;
     -webkit-text-fill-color: #6B7280 !important;
     opacity: 1 !important;
@@ -1421,15 +1428,19 @@ div[data-baseweb="tooltip"] * {
 """
 
 
-def _dark_theme_overrides_css() -> str:
+def _dark_theme_overrides_css(scope: str = "") -> str:
+    sp = _css_scope_prefix(scope)
     col_sel = _overview_columns_selector()
     overview_buttons = _overview_filter_button_selector()
-    overview_secondary = _btn_secondary_selector(f".dark-theme {col_sel}")
-    active_rules = _kpi_filter_active_color_rules(".dark-theme")
+    overview_secondary = _btn_secondary_selector(f"{sp}{col_sel}".strip())
+    active_rules = _kpi_filter_active_color_rules(scope)
+    color_scheme_rule = (
+        f"{scope} {{ color-scheme: dark !important; }}"
+        if scope
+        else ":root { color-scheme: dark !important; }"
+    )
     return f"""
-.dark-theme {{
-    color-scheme: dark !important;
-}}
+{color_scheme_rule}
 
 {overview_secondary} {{
     background-color: #1E293B !important;
@@ -1438,7 +1449,7 @@ def _dark_theme_overrides_css() -> str:
     -webkit-text-fill-color: #F8FAFC !important;
 }}
 
-.dark-theme {overview_buttons} {{
+{sp}{overview_buttons} {{
     height: 42px !important;
     min-height: 42px !important;
     max-height: 42px !important;
@@ -1456,45 +1467,6 @@ def _dark_theme_overrides_css() -> str:
 
 {active_rules}
 """
-
-
-def _theme_class_bootstrap(theme_choice: str) -> str:
-    if theme_choice == "Lyst tema":
-        return """
-(function () {
-  const doc = window.parent.document;
-  const root = doc.querySelector(".stApp") || doc.body;
-  root.classList.remove("dark-theme");
-  root.classList.add("light-theme");
-})();
-"""
-    if theme_choice == "Mørkt tema":
-        return """
-(function () {
-  const doc = window.parent.document;
-  const root = doc.querySelector(".stApp") || doc.body;
-  root.classList.remove("light-theme");
-  root.classList.add("dark-theme");
-})();
-"""
-    return """
-(function () {
-  const doc = window.parent.document;
-  const root = doc.querySelector(".stApp") || doc.body;
-  const apply = () => {
-    const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    root.classList.remove("light-theme", "dark-theme");
-    root.classList.add(dark ? "dark-theme" : "light-theme");
-  };
-  apply();
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", apply);
-})();
-"""
-
-
-def _inject_theme_class(theme_choice: str) -> None:
-    script = _theme_class_bootstrap(theme_choice)
-    components.html(f"<script>{script}</script>", height=0, width=0)
 
 
 def _dropdown_css(scheme: str) -> str:
@@ -1972,9 +1944,9 @@ def inject_styles(theme_choice: str) -> None:
     if theme_choice == "Browser standard":
         light = THEME_PALETTES["Lyst tema"]
         dark = THEME_PALETTES["Mørkt tema"]
-        css_parts.append(_themed_css_rules(light, light["input_bg"], media=None))
+        css_parts.append(_themed_css_rules(light, light["input_bg"], media="(prefers-color-scheme: light)"))
         css_parts.append(_themed_css_rules(dark, dark["input_bg"], media="(prefers-color-scheme: dark)"))
-        css_parts.append(_light_theme_overrides_css())
+        css_parts.append(_wrap_media(_light_theme_overrides_css(), "(prefers-color-scheme: light)"))
         css_parts.append(_wrap_media(_light_theme_tooltip_css(), "(prefers-color-scheme: light)"))
         css_parts.append(_wrap_media(_dark_theme_overrides_css(), "(prefers-color-scheme: dark)"))
     elif theme_choice in THEME_PALETTES:
@@ -1990,7 +1962,6 @@ def inject_styles(theme_choice: str) -> None:
 
     css = "<style>\n" + "\n".join(css_parts) + "\n</style>"
     st.markdown(css, unsafe_allow_html=True)
-    _inject_theme_class(theme_choice)
 
 
 def render_language_settings() -> None:

@@ -8,5 +8,9 @@ gatherUsageStats = false
 
 # Tema og sprog styres dynamisk i appen (ikon-knapper og sprogvalg i sidebaren).
 [theme]
+base = "light"
 primaryColor = "#2563EB"
+backgroundColor = "#FAFAF9"
+secondaryBackgroundColor = "#F5F5F4"
+textColor = "#1C1917"
 font = "sans serif"

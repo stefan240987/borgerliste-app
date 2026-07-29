@@ -1342,6 +1342,43 @@ def _kpi_filter_active_color_rules(theme_prefix: str) -> str:
     return "\n".join(rules)
 
 
+def _light_theme_field_css(scope: str = "") -> str:
+    sp = f"{scope} " if scope else ""
+    return f"""
+{sp}div[data-testid="stTextInput"] input,
+{sp}div[data-baseweb="input"] input,
+{sp}div[data-testid="stSelectbox"] [data-baseweb="select"],
+{sp}div[data-testid="stSelectbox"] div[data-baseweb="select"],
+{sp}div[data-testid="stMultiSelect"] div[data-baseweb="select"],
+{sp}div[data-baseweb="select"] > div,
+{sp}div[data-baseweb="select"] {{
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+    -webkit-text-fill-color: #111827 !important;
+    border: 1px solid #9CA3AF !important;
+    caret-color: #111827 !important;
+}}
+
+{sp}div[data-testid="stSelectbox"] [data-baseweb="select"] *,
+{sp}div[data-baseweb="select"] div,
+{sp}div[data-baseweb="select"] span {{
+    color: #111827 !important;
+    -webkit-text-fill-color: #111827 !important;
+}}
+
+{sp}div[data-baseweb="select"] svg {{
+    fill: #111827 !important;
+}}
+
+{sp}div[data-testid="stTextInput"] input::placeholder,
+{sp}div[data-baseweb="input"] input::placeholder {{
+    color: #6B7280 !important;
+    -webkit-text-fill-color: #6B7280 !important;
+    opacity: 1 !important;
+}}
+"""
+
+
 def _light_theme_overrides_css() -> str:
     col_sel = _overview_columns_selector()
     overview_buttons = _overview_filter_button_selector()
@@ -1375,53 +1412,40 @@ def _light_theme_overrides_css() -> str:
     box-shadow: none !important;
 }}
 
-.light-theme div[data-testid="stTextInput"] input,
-.light-theme div[data-baseweb="input"] input {{
-    background-color: #FFFFFF !important;
-    color: #111827 !important;
-    -webkit-text-fill-color: #111827 !important;
-    border: 1px solid #9CA3AF !important;
-    caret-color: #111827 !important;
-}}
-
-.light-theme div[data-testid="stTextInput"] input::placeholder,
-.light-theme div[data-baseweb="input"] input::placeholder {{
-    color: #6B7280 !important;
-    -webkit-text-fill-color: #6B7280 !important;
-    opacity: 1 !important;
-}}
+{_light_theme_field_css(".light-theme")}
 
 {active_rules}
 """
 
 
-def _light_theme_tooltip_css() -> str:
-    return """
-div[data-baseweb="tooltip"] > div,
-div[data-baseweb="popover"]:has([data-testid="stTooltipContent"]) > div,
-div[data-baseweb="popover"]:has(.stTooltipContent) > div,
-div[role="tooltip"],
-div[role="tooltip"] > div {
+def _light_theme_tooltip_css(scope: str = "") -> str:
+    sp = f"{scope} " if scope else ""
+    return f"""
+{sp}div[data-baseweb="tooltip"] > div,
+{sp}div[data-baseweb="popover"]:has([data-testid="stTooltipContent"]) > div,
+{sp}div[data-baseweb="popover"]:has(.stTooltipContent) > div,
+{sp}div[role="tooltip"],
+{sp}div[role="tooltip"] > div {{
     background-color: #FFFFFF !important;
     color: #111827 !important;
     border: 1px solid #D1D5DB !important;
     box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12) !important;
-}
+}}
 
-div[data-baseweb="tooltip"],
-div[role="tooltip"] {
+{sp}div[data-baseweb="tooltip"],
+{sp}div[role="tooltip"] {{
     color: #111827 !important;
-}
+}}
 
-[data-testid="stTooltipContent"],
-.stTooltipContent,
-[data-testid="stTooltipContent"] *,
-.stTooltipContent *,
-div[data-baseweb="tooltip"] *,
-div[role="tooltip"] * {
+{sp}[data-testid="stTooltipContent"],
+{sp}.stTooltipContent,
+{sp}[data-testid="stTooltipContent"] *,
+{sp}.stTooltipContent *,
+{sp}div[data-baseweb="tooltip"] *,
+{sp}div[role="tooltip"] * {{
     color: #111827 !important;
     -webkit-text-fill-color: #111827 !important;
-}
+}}
 """
 
 
@@ -1456,6 +1480,21 @@ def _dark_theme_overrides_css() -> str:
     font-weight: 600 !important;
     line-height: 1.1 !important;
     box-shadow: none !important;
+}}
+
+.dark-theme div[data-testid="stSelectbox"] [data-baseweb="select"],
+.dark-theme div[data-testid="stSelectbox"] div[data-baseweb="select"],
+.dark-theme div[data-testid="stMultiSelect"] div[data-baseweb="select"],
+.dark-theme div[data-baseweb="select"] > div,
+.dark-theme div[data-baseweb="select"] {{
+    background-color: #1E293B !important;
+    color: #F8FAFC !important;
+    -webkit-text-fill-color: #F8FAFC !important;
+    border: 1px solid #334155 !important;
+}}
+
+.dark-theme div[data-baseweb="select"] svg {{
+    fill: #F8FAFC !important;
 }}
 
 {active_rules}
@@ -1992,6 +2031,8 @@ def inject_styles(theme_choice: str) -> None:
         css_parts.append(_themed_css_rules(light, light["input_bg"], media=None))
         css_parts.append(_themed_css_rules(dark, dark["input_bg"], media="(prefers-color-scheme: dark)"))
         css_parts.append(_light_theme_overrides_css())
+        css_parts.append(_wrap_media(_light_theme_field_css(), "(prefers-color-scheme: light)"))
+        css_parts.append(_wrap_media(_light_theme_tooltip_css("html:has(.stApp.light-theme)"), "(prefers-color-scheme: light)"))
         css_parts.append(_wrap_media(_light_theme_tooltip_css(), "(prefers-color-scheme: light)"))
         css_parts.append(_wrap_media(_dark_theme_overrides_css(), "(prefers-color-scheme: dark)"))
     elif theme_choice in THEME_PALETTES:
@@ -2001,6 +2042,8 @@ def inject_styles(theme_choice: str) -> None:
         css_parts.append(_themed_css_rules(palette, button_secondary_bg))
         if is_light:
             css_parts.append(_light_theme_overrides_css())
+            css_parts.append(_light_theme_field_css())
+            css_parts.append(_light_theme_tooltip_css("html:has(.stApp.light-theme)"))
             css_parts.append(_light_theme_tooltip_css())
         else:
             css_parts.append(_dark_theme_overrides_css())

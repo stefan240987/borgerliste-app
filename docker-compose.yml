@@ -1,0 +1,15 @@
+services:
+  borgerliste:
+    build: .
+    container_name: borgerliste-app
+    ports:
+      - "8501:8501"
+    environment:
+      BORGERLISTE_DATA_DIR: /data
+      BORGERLISTE_MASTER_DELETE_PASSWORD: ${BORGERLISTE_MASTER_DELETE_PASSWORD:-Linkin24}
+    volumes:
+      - borgerliste_data:/data
+    restart: unless-stopped
+
+volumes:
+  borgerliste_data:

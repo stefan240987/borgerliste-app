@@ -1,0 +1,11 @@
+.venv
+__pycache__
+.git
+.gitignore
+data
+*.pyc
+.DS_Store
+Borgerliste.app
+Start Borgerliste.command
+Start Borgerliste.bat
+.streamlit/secrets.toml

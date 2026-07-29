@@ -1,0 +1,12 @@
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
+
+# Tema og sprog styres dynamisk i appen (ikon-knapper og sprogvalg i sidebaren).
+[theme]
+primaryColor = "#2563EB"
+font = "sans serif"

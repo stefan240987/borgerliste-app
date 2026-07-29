@@ -31,10 +31,11 @@ Gør GHCR-pakken **public** under GitHub → Packages, hvis Unraid ikke skal log
 ## Hurtig start (lokal build på server)
 
 1. Kopiér hele projektmappen til serveren (eller `git clone`).
-2. Opret en `.env`-fil (valgfri):
+2. Opret en `.env`-fil:
 
 ```env
-BORGERLISTE_MASTER_DELETE_PASSWORD=din-sikre-adgangskode
+BORGERLISTE_ADMIN_USERNAME=admin
+BORGERLISTE_ADMIN_PASSWORD=din-sikre-adgangskode
 ```
 
 3. Byg og start containeren:
@@ -63,8 +64,8 @@ docker run --rm -v borgerliste_data:/data -v "$PWD":/backup alpine \
 
 ## Adgangskode / GDPR
 
-- Skift `BORGERLISTE_MASTER_DELETE_PASSWORD` i produktion (kun ved sletning af master-register)
-- Alternativt kan adgangskode sættes i `.streamlit/secrets.toml` (kun ved lokal Streamlit-kørsel uden Docker)
+- Skift `BORGERLISTE_ADMIN_PASSWORD` i produktion
+- Kun administratorer kan slette master-registeret (med egen admin-adgangskode)
 - Brug HTTPS via reverse proxy (Nginx, Caddy, Traefik) i produktion
 
 ## Drift

@@ -5,26 +5,56 @@ Understøtter lokal kørsel og Docker-server med valgfri adgangskode.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import html
 import json
 import os
 import re
-from datetime import datetime
+import secrets
+import shutil
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
+import extra_streamlit_components as stx
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-DATA_DIR = Path(os.environ.get("BORGERLISTE_DATA_DIR", Path(__file__).resolve().parent / "data"))
-ACTIVE_LIST_PARQUET = DATA_DIR / "active_borgerliste.parquet"
-ACTIVE_LIST_CSV = DATA_DIR / "active_borgerliste.csv"
-ACTIVE_SESSION_PATH = DATA_DIR / "active_session.json"
+APP_ROOT = Path(__file__).resolve().parent
+DATA_DIR = Path(os.environ.get("BORGERLISTE_DATA_DIR", APP_ROOT / "data"))
+LOGO_PATH = APP_ROOT / "assets" / "borgerliste-logo.svg"
 STATUS_HISTORY_PATH = DATA_DIR / "status_history.json"
 MASTER_REFERENCE_REGISTER_PATH = DATA_DIR / "master_reference_register.json"
 USER_PREFERENCES_PATH = DATA_DIR / "user_preferences.json"
+USERS_PATH = DATA_DIR / "users.json"
+AUDIT_LOG_PATH = DATA_DIR / "audit_log.json"
+USER_DATA_ROOT = DATA_DIR / "user_data"
+LEGACY_ACTIVE_LIST_PARQUET = DATA_DIR / "active_borgerliste.parquet"
+LEGACY_ACTIVE_LIST_CSV = DATA_DIR / "active_borgerliste.csv"
+LEGACY_ACTIVE_SESSION_PATH = DATA_DIR / "active_session.json"
+USER_ROLES = ("admin", "user")
+MAX_AUDIT_ENTRIES = 10000
+DEFAULT_ADMIN_USERNAME = "admin"
+MIN_PASSWORD_LENGTH = 12
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_SECONDS = 900
+USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{2,32}$")
+LOGIN_ATTEMPTS_PATH = DATA_DIR / "login_attempts.json"
+BOOTSTRAP_ADMIN_PATH = DATA_DIR / ".admin_bootstrap.txt"
+AUTH_SESSIONS_PATH = DATA_DIR / "auth_sessions.json"
+APP_SETTINGS_PATH = DATA_DIR / "app_settings.json"
+SESSION_COOKIE_NAME = "borgerliste_session"
+DEFAULT_SESSION_IDLE_HOURS = 24
+DEFAULT_SESSION_MAX_DAYS = 30
+MIN_SESSION_IDLE_HOURS = 1
+MAX_SESSION_IDLE_HOURS = 168
+COOKIE_MANAGER_KEY = "borgerliste_cookie_manager"
+COOKIE_MANAGER_INSTANCE_KEY = "_borgerliste_cookie_manager_instance"
+SIDEBAR_AUTO_COLLAPSE_SECONDS = 10
+PASSWORD_HASH_ITERATIONS = 120_000
 
 STATUSES = [
     "Ikke kontaktet endnu",
@@ -154,11 +184,88 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "call_again_date": "Ring igen: {date}",
         "status_saved": "Status gemt",
         "no_citizens_match": "Ingen borgere matcher dit filter. Prøv et andet filter eller søgning.",
+
+        "login_username": "Brugernavn",
+        "login_locked_out": "For mange mislykkede forsøg. Prøv igen om {minutes} min.",
+        "login_session_expired": "Din session er udløbet. Log ind igen.",
+        "session_valid_for": "Session aktiv i op til {hours} timer ved inaktivitet.",
+        "bootstrap_admin_notice": "Første admin er oprettet. Se {path} for midlertidig adgangskode.",
+        "upload_too_large": "Filen er for stor (maks. {max_mb} MB).",
+        "role_admin": "Administrator",
+        "role_user": "Bruger",
+        "logout": "Log ud",
+        "logged_in_as": "Logget ind som {username} ({role})",
+        "changed_by": "Sidst ændret af {username} ({timestamp})",
+        "nav_borgerliste": "Borgerliste",
+        "nav_account": "Min konto",
+        "sidebar_pin": "Fastgør menuen, så den ikke lukker automatisk",
+        "sidebar_unpin": "Menu fastgjort — klik for at frigøre",
+        "account_title": "Min konto",
+        "account_profile_tab": "Profil",
+        "account_admin_users_tab": "Brugere",
+        "account_admin_master_tab": "Master-register",
+        "account_admin_audit_tab": "Status-log",
+        "account_username_label": "Brugernavn",
+        "account_role_label": "Rolle",
+        "account_created_label": "Oprettet",
+        "account_change_password_title": "Skift adgangskode",
+        "account_password_hint": "Adgangskoden skal være mindst {min} tegn.",
+        "account_current_password": "Nuværende adgangskode",
+        "account_new_password": "Ny adgangskode",
+        "account_confirm_password": "Bekræft ny adgangskode",
+        "account_password_submit": "Gem ny adgangskode",
+        "account_password_mismatch": "Adgangskoderne matcher ikke.",
+        "account_password_wrong": "Forkert nuværende adgangskode.",
+        "account_password_updated": "Adgangskode opdateret.",
+        "admin_users_title": "Brugere",
+        "admin_create_user": "Opret bruger",
+        "admin_new_username": "Brugernavn",
+        "admin_new_password": "Adgangskode",
+        "admin_new_role": "Rolle",
+        "admin_create_submit": "Opret",
+        "admin_users_list": "Eksisterende brugere",
+        "admin_no_users": "Ingen brugere endnu.",
+        "admin_deactivate": "Deaktiver",
+        "admin_cannot_deactivate_self": "Du kan ikke deaktivere din egen konto.",
+        "admin_user_created": "Bruger {username} er oprettet.",
+        "admin_user_deactivated": "Bruger {username} er deaktiveret.",
+        "admin_user_exists": "Brugernavnet findes allerede.",
+        "admin_user_invalid": "Udfyld brugernavn og adgangskode (min. {min} tegn).",
+        "admin_username_invalid": "Brugernavn skal være 2–32 tegn og må kun indeholde bogstaver, tal, _ og -.",
+        "admin_password_weak": "Adgangskoden skal være mindst {min} tegn.",
+        "admin_reset_password": "Nulstil adgangskode",
+        "admin_reset_password_for": "Ny adgangskode for {username}",
+        "admin_password_reset_done": "Adgangskode nulstillet for {username}.",
+        "account_admin_settings_tab": "Indstillinger",
+        "admin_session_title": "Session og inaktivitet",
+        "admin_session_idle_label": "Log ud efter inaktivitet (timer)",
+        "admin_session_idle_help": (
+            "Brugere logges automatisk ud efter denne periode uden aktivitet i appen. "
+            "Gælder alle brugere."
+        ),
+        "admin_session_idle_saved": "Session-indstilling gemt.",
+        "admin_session_idle_invalid": "Angiv et helt tal mellem {min} og {max} timer.",
+        "admin_session_current": "Nuværende grænse: {hours} timer ved inaktivitet.",
+        "admin_session_save": "Gem indstilling",
+        "admin_audit_title": "Status-log",
+        "admin_audit_caption": "Seneste statusændringer på tværs af brugere.",
+        "admin_audit_empty": "Ingen logposter endnu.",
+        "admin_audit_all_users": "Alle brugere",
+        "admin_audit_filter_user": "Filtrer bruger",
+        "admin_audit_filter_citizen": "Filtrer borger",
+        "admin_audit_col_time": "Tidspunkt",
+        "admin_audit_col_user": "Bruger",
+        "admin_audit_col_citizen": "Borger",
+        "admin_audit_col_from": "Fra",
+        "admin_audit_col_to": "Til",
+        "master_admin_description": "Master-registeret samler statusser fra alle brugeres lister.",
+        "master_delete_admin_only": "Kun administratorer kan slette master-registeret.",
+        "master_delete_not_configured": "Kun administratorer kan slette master-registeret.",
         "login_title": "Log ind",
-        "login_caption": "Adgangskode kræves for at beskytte borgerdata på netværket.",
+        "login_caption": "Log ind for at beskytte borgerdata.",
         "login_password": "Adgangskode",
         "login_submit": "Log ind",
-        "login_error": "Forkert adgangskode.",
+        "login_error": "Forkert brugernavn eller adgangskode.",
         "status_not_contacted": "Ikke kontaktet endnu",
         "status_accepted": "Accepteret tilbud",
         "status_declined": "Afslået tilbud",
@@ -180,14 +287,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "clear_master_register": "Slet master-register",
         "master_register_cleared": "Master-registeret er slettet.",
         "master_delete_warning": (
-            "Dette sletter master-registeret, alle gemte lister og statusser. "
-            "Appen starter forfra. Handlingen kan ikke fortrydes."
+            "Kun administratorer kan udføre dette. Det sletter master-registeret, alle brugeres "
+            "gemte lister og statusser. Appen starter forfra. Handlingen kan ikke fortrydes."
         ),
-        "master_delete_password": "Adgangskode for at slette",
+        "master_delete_password": "Bekræft med din admin-adgangskode",
         "master_delete_confirm": "Bekræft sletning",
-        "master_delete_password_error": "Forkert adgangskode.",
+        "master_delete_password_error": "Forkert admin-adgangskode.",
         "master_delete_password_required": (
-            "Sletning kræver adgangskode. Sæt BORGERLISTE_PASSWORD i miljøvariabler."
+            "Kun administratorer kan slette master-registeret."
         ),
         "upload_loaded_with_matches": (
             "Indlæst {count} borgere. Genkendte {matched} borgere fra tidligere "
@@ -247,11 +354,88 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "call_again_date": "Call again: {date}",
         "status_saved": "Status saved",
         "no_citizens_match": "No citizens match your filter. Try another filter or search.",
+
+        "login_username": "Username",
+        "login_locked_out": "Too many failed attempts. Try again in {minutes} min.",
+        "login_session_expired": "Your session has expired. Please sign in again.",
+        "session_valid_for": "Session stays active for up to {hours} hours of inactivity.",
+        "bootstrap_admin_notice": "First admin created. See {path} for temporary password.",
+        "upload_too_large": "File is too large (max {max_mb} MB).",
+        "role_admin": "Administrator",
+        "role_user": "User",
+        "logout": "Sign out",
+        "logged_in_as": "Signed in as {username} ({role})",
+        "changed_by": "Last changed by {username} ({timestamp})",
+        "nav_borgerliste": "Citizen list",
+        "nav_account": "My account",
+        "sidebar_pin": "Pin menu to keep it open",
+        "sidebar_unpin": "Menu pinned — click to unpin",
+        "account_title": "My account",
+        "account_profile_tab": "Profile",
+        "account_admin_users_tab": "Users",
+        "account_admin_master_tab": "Master register",
+        "account_admin_audit_tab": "Status log",
+        "account_username_label": "Username",
+        "account_role_label": "Role",
+        "account_created_label": "Created",
+        "account_change_password_title": "Change password",
+        "account_password_hint": "Password must be at least {min} characters.",
+        "account_current_password": "Current password",
+        "account_new_password": "New password",
+        "account_confirm_password": "Confirm new password",
+        "account_password_submit": "Save new password",
+        "account_password_mismatch": "Passwords do not match.",
+        "account_password_wrong": "Incorrect current password.",
+        "account_password_updated": "Password updated.",
+        "admin_users_title": "Users",
+        "admin_create_user": "Create user",
+        "admin_new_username": "Username",
+        "admin_new_password": "Password",
+        "admin_new_role": "Role",
+        "admin_create_submit": "Create",
+        "admin_users_list": "Existing users",
+        "admin_no_users": "No users yet.",
+        "admin_deactivate": "Deactivate",
+        "admin_cannot_deactivate_self": "You cannot deactivate your own account.",
+        "admin_user_created": "User {username} created.",
+        "admin_user_deactivated": "User {username} deactivated.",
+        "admin_user_exists": "Username already exists.",
+        "admin_user_invalid": "Enter username and password (min. {min} characters).",
+        "admin_username_invalid": "Username must be 2–32 characters and contain only letters, numbers, _ and -.",
+        "admin_password_weak": "Password must be at least {min} characters.",
+        "admin_reset_password": "Reset password",
+        "admin_reset_password_for": "New password for {username}",
+        "admin_password_reset_done": "Password reset for {username}.",
+        "account_admin_settings_tab": "Settings",
+        "admin_session_title": "Session and inactivity",
+        "admin_session_idle_label": "Sign out after inactivity (hours)",
+        "admin_session_idle_help": (
+            "Users are automatically signed out after this period without activity in the app. "
+            "Applies to all users."
+        ),
+        "admin_session_idle_saved": "Session setting saved.",
+        "admin_session_idle_invalid": "Enter a whole number between {min} and {max} hours.",
+        "admin_session_current": "Current limit: {hours} hours of inactivity.",
+        "admin_session_save": "Save setting",
+        "admin_audit_title": "Status log",
+        "admin_audit_caption": "Recent status changes across users.",
+        "admin_audit_empty": "No log entries yet.",
+        "admin_audit_all_users": "All users",
+        "admin_audit_filter_user": "Filter user",
+        "admin_audit_filter_citizen": "Filter citizen",
+        "admin_audit_col_time": "Time",
+        "admin_audit_col_user": "User",
+        "admin_audit_col_citizen": "Citizen",
+        "admin_audit_col_from": "From",
+        "admin_audit_col_to": "To",
+        "master_admin_description": "The master register collects statuses from all users' lists.",
+        "master_delete_admin_only": "Only administrators can delete the master register.",
+        "master_delete_not_configured": "Only administrators can delete the master register.",
         "login_title": "Sign in",
-        "login_caption": "A password is required to protect citizen data on the network.",
+        "login_caption": "Sign in to protect citizen data.",
         "login_password": "Password",
         "login_submit": "Sign in",
-        "login_error": "Incorrect password.",
+        "login_error": "Incorrect username or password.",
         "status_not_contacted": "Not contacted yet",
         "status_accepted": "Offer accepted",
         "status_declined": "Offer declined",
@@ -273,14 +457,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "clear_master_register": "Delete master register",
         "master_register_cleared": "Master register deleted.",
         "master_delete_warning": (
-            "This deletes the master register, all saved lists and statuses. "
-            "The app starts fresh. This action cannot be undone."
+            "Administrators only. This deletes the master register, all users' saved lists and "
+            "statuses. The app starts fresh. This action cannot be undone."
         ),
-        "master_delete_password": "Password to delete",
+        "master_delete_password": "Confirm with your admin password",
         "master_delete_confirm": "Confirm deletion",
-        "master_delete_password_error": "Incorrect password.",
+        "master_delete_password_error": "Incorrect admin password.",
         "master_delete_password_required": (
-            "Deletion requires a password. Set BORGERLISTE_PASSWORD in environment variables."
+            "Only administrators can delete the master register."
         ),
         "upload_loaded_with_matches": (
             "Loaded {count} citizens. Matched {matched} citizens from previous "
@@ -473,10 +657,17 @@ def read_csv_bytes(raw: bytes) -> tuple[pd.DataFrame, str]:
 
 
 def read_uploaded_file(uploaded_file) -> tuple[pd.DataFrame, str]:
-    name = uploaded_file.name.lower()
+    uploaded_file.seek(0, os.SEEK_END)
+    size = uploaded_file.tell()
     uploaded_file.seek(0)
+    if size > MAX_UPLOAD_BYTES:
+        raise ValueError(t("upload_too_large", max_mb=MAX_UPLOAD_BYTES // (1024 * 1024)))
+
+    name = uploaded_file.name.lower()
     if name.endswith(".csv"):
-        raw = uploaded_file.read()
+        raw = uploaded_file.read(MAX_UPLOAD_BYTES + 1)
+        if len(raw) > MAX_UPLOAD_BYTES:
+            raise ValueError(t("upload_too_large", max_mb=MAX_UPLOAD_BYTES // (1024 * 1024)))
         df, encoding = read_csv_bytes(raw)
         return df, encoding
     if name.endswith((".xlsx", ".xls")):
@@ -634,9 +825,66 @@ def load_master_register_state() -> dict[str, object]:
     return {"cleared": False, "entries": []}
 
 
+def _row_has_master_identity(row: pd.Series) -> bool:
+    name = normalize_match_text(row.get("Navn", ""))
+    address = normalize_match_text(row.get("Adresse", ""))
+    phone = normalize_match_phone(row.get("Telefonnummer", ""))
+    if name and address:
+        return True
+    if name and len(phone) >= 6:
+        return True
+    if address and len(phone) >= 6:
+        return True
+    return False
+
+
+def _entry_has_master_identity(entry: dict) -> bool:
+    return _row_has_master_identity(
+        pd.Series(
+            {
+                "Navn": entry.get("Navn", ""),
+                "Adresse": entry.get("Adresse", ""),
+                "Telefonnummer": entry.get("Telefonnummer", ""),
+            }
+        )
+    )
+
+
+def normalize_master_register(register: list[dict]) -> list[dict]:
+    """Fjern ugyldige poster og slå dubletter sammen."""
+    normalized: list[dict] = []
+    for raw_entry in register:
+        if not isinstance(raw_entry, dict) or not _entry_has_master_identity(raw_entry):
+            continue
+        entry = {
+            "Navn": repair_text(raw_entry.get("Navn", "")),
+            "Adresse": repair_text(raw_entry.get("Adresse", "")),
+            "Telefonnummer": repair_text(raw_entry.get("Telefonnummer", "")),
+            "Status": repair_text(raw_entry.get("Status", DEFAULT_STATUS)),
+            "Status dato": repair_text(raw_entry.get("Status dato", "")),
+            "Ring igen dato": repair_text(raw_entry.get("Ring igen dato", "")),
+            "updated_at": repair_text(raw_entry.get("updated_at", ""))
+            or datetime.now().isoformat(timespec="seconds"),
+        }
+        row = pd.Series({**entry, "_id": ""})
+        match = find_master_register_match(row, normalized)
+        if match is None:
+            normalized.append(entry)
+            continue
+        if _status_entry_timestamp(entry) >= _status_entry_timestamp(match):
+            match.update(entry)
+    return normalized
+
+
 def load_master_register() -> list[dict]:
     state = load_master_register_state()
-    return state["entries"]  # type: ignore[return-value]
+    entries = state["entries"]  # type: ignore[assignment]
+    if not isinstance(entries, list):
+        return []
+    normalized = normalize_master_register(entries)
+    if len(normalized) != len(entries):
+        save_master_register(normalized, cleared=bool(state["cleared"]))
+    return normalized
 
 
 def is_master_register_cleared() -> bool:
@@ -653,22 +901,33 @@ def save_master_register(register: list[dict], *, cleared: bool = False) -> None
 
 def clear_master_register() -> None:
     """Slet alt gemt borgerliste-data så appen kan startes helt forfra."""
+    if not is_admin():
+        raise PermissionError(t("master_delete_admin_only"))
+
     if STATUS_HISTORY_PATH.exists():
         STATUS_HISTORY_PATH.unlink()
 
-    for path in (ACTIVE_LIST_PARQUET, ACTIVE_LIST_CSV, ACTIVE_SESSION_PATH):
+    for path in (LEGACY_ACTIVE_LIST_PARQUET, LEGACY_ACTIVE_LIST_CSV, LEGACY_ACTIVE_SESSION_PATH):
         if path.exists():
             path.unlink()
 
+    if USER_DATA_ROOT.exists():
+        shutil.rmtree(USER_DATA_ROOT)
+    USER_DATA_ROOT.mkdir(parents=True, exist_ok=True)
+
     if DATA_DIR.exists():
-        preserved = {USER_PREFERENCES_PATH.name}
+        preserved = {USERS_PATH.name, APP_SETTINGS_PATH.name}
         for path in DATA_DIR.glob("*.json"):
             if path.name in preserved:
                 continue
             path.unlink()
 
+    if AUDIT_LOG_PATH.exists():
+        AUDIT_LOG_PATH.unlink()
+
     save_master_register([], cleared=True)
     clear_active_list()
+
 
 
 def find_master_register_match(row: pd.Series, register: list[dict]) -> dict | None:
@@ -689,13 +948,32 @@ def find_master_register_match(row: pd.Series, register: list[dict]) -> dict | N
     return best_entry
 
 
+def _status_entry_timestamp(entry: dict) -> datetime:
+    updated_at = repair_text(entry.get("updated_at", ""))
+    if updated_at:
+        try:
+            return datetime.fromisoformat(updated_at)
+        except ValueError:
+            pass
+    date_str = repair_text(entry.get("Status dato", ""))
+    if date_str:
+        try:
+            return datetime.strptime(date_str, "%d-%m-%Y")
+        except ValueError:
+            pass
+    return datetime.min
+
+
 def upsert_master_register_entry(row: pd.Series, register: list[dict]) -> None:
+    if not _row_has_master_identity(row):
+        return
     entry = master_register_entry_from_row(row)
     match = find_master_register_match(row, register)
     if match is None:
         register.append(entry)
         return
-    match.update(entry)
+    if _status_entry_timestamp(entry) >= _status_entry_timestamp(match):
+        match.update(entry)
 
 
 def apply_master_register_statuses(df: pd.DataFrame, register: list[dict]) -> tuple[pd.DataFrame, int]:
@@ -704,6 +982,28 @@ def apply_master_register_statuses(df: pd.DataFrame, register: list[dict]) -> tu
     out["Status"] = DEFAULT_STATUS
     out["Status dato"] = ""
     out["Ring igen dato"] = ""
+
+    matched = 0
+    for idx, row in out.iterrows():
+        entry = find_master_register_match(row, register)
+        if not entry:
+            continue
+        status = repair_text(entry.get("Status", DEFAULT_STATUS))
+        if status not in STATUSES:
+            continue
+        matched += 1
+        out.at[idx, "Status"] = status
+        out.at[idx, "Status dato"] = repair_text(entry.get("Status dato", ""))
+        out.at[idx, "Ring igen dato"] = repair_text(entry.get("Ring igen dato", ""))
+
+    return out, matched
+
+
+def merge_master_register_statuses(df: pd.DataFrame, register: list[dict]) -> tuple[pd.DataFrame, int]:
+    """Anvend master-status oven på eksisterende rækker uden at nulstille resten."""
+    out = df.copy()
+    if "_id" not in out.columns:
+        out["_id"] = out.apply(citizen_id, axis=1)
 
     matched = 0
     for idx, row in out.iterrows():
@@ -731,6 +1031,76 @@ def sync_master_register_from_dataframe(df: pd.DataFrame) -> None:
         if row["Status"] != DEFAULT_STATUS or row.get("Status dato"):
             upsert_master_register_entry(row, register)
             changed = True
+    if changed:
+        save_master_register(register, cleared=False)
+
+
+def _row_from_saved_entry(citizen_key: str, entry: dict) -> pd.Series:
+    return pd.Series(
+        {
+            "Navn": repair_text(entry.get("Navn", "")),
+            "Adresse": repair_text(entry.get("Adresse", "")),
+            "Telefonnummer": repair_text(entry.get("Telefonnummer", "")),
+            "Status": repair_text(entry.get("Status", DEFAULT_STATUS)),
+            "Status dato": repair_text(entry.get("Status dato", "")),
+            "Ring igen dato": repair_text(entry.get("Ring igen dato", "")),
+            "_id": citizen_key,
+        }
+    )
+
+
+def _sync_dataframe_rows_to_master(df: pd.DataFrame, register: list[dict]) -> bool:
+    changed = False
+    for _, row in df.iterrows():
+        if row["Status"] != DEFAULT_STATUS or row.get("Status dato"):
+            upsert_master_register_entry(row, register)
+            changed = True
+    return changed
+
+
+def sync_master_from_all_user_data() -> None:
+    """Opdater master-registeret med status fra alle brugeres gemte lister."""
+    if is_master_register_cleared():
+        return
+
+    register = load_master_register()
+    changed = False
+
+    if USER_DATA_ROOT.exists():
+        for user_dir in USER_DATA_ROOT.iterdir():
+            if not user_dir.is_dir():
+                continue
+
+            for json_path in user_dir.glob("*.json"):
+                if json_path.name in ("active_session.json", "preferences.json"):
+                    continue
+                try:
+                    with json_path.open(encoding="utf-8") as handle:
+                        data = json.load(handle)
+                    if not isinstance(data, dict):
+                        continue
+                    for citizen_key, entry in data.items():
+                        if not isinstance(entry, dict):
+                            continue
+                        if not entry.get("Navn") and not entry.get("Adresse"):
+                            continue
+                        status = repair_text(entry.get("Status", DEFAULT_STATUS))
+                        if status == DEFAULT_STATUS and not entry.get("Status dato"):
+                            continue
+                        row = _row_from_saved_entry(str(citizen_key), entry)
+                        upsert_master_register_entry(row, register)
+                        changed = True
+                except (json.JSONDecodeError, OSError):
+                    continue
+
+            active_df = _read_active_list_file(user_dir.name)
+            if active_df is not None and not active_df.empty:
+                if "_id" not in active_df.columns:
+                    active_df = active_df.copy()
+                    active_df["_id"] = active_df.apply(citizen_id, axis=1)
+                if _sync_dataframe_rows_to_master(active_df, register):
+                    changed = True
+
     if changed:
         save_master_register(register, cleared=False)
 
@@ -829,13 +1199,41 @@ def list_storage_key(filename: str, df: pd.DataFrame) -> str:
     return f"{safe_name}_{digest}"
 
 
-def storage_path(key: str) -> Path:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    return DATA_DIR / f"{key}.json"
+def safe_username(username: str) -> str:
+    cleaned = re.sub(r"[^\w\-]+", "_", username.strip())
+    return cleaned[:64] or "unknown"
 
 
-def load_saved_state(key: str) -> dict[str, dict]:
-    path = storage_path(key)
+def user_data_dir(username: str | None = None) -> Path:
+    name = safe_username(username or current_username())
+    path = USER_DATA_ROOT / name
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def user_active_list_parquet(username: str | None = None) -> Path:
+    return user_data_dir(username) / "active_borgerliste.parquet"
+
+
+def user_active_list_csv(username: str | None = None) -> Path:
+    return user_data_dir(username) / "active_borgerliste.csv"
+
+
+def user_active_session_path(username: str | None = None) -> Path:
+    return user_data_dir(username) / "active_session.json"
+
+
+def user_preferences_path(username: str | None = None) -> Path:
+    return user_data_dir(username) / "preferences.json"
+
+
+def storage_path(key: str, username: str | None = None) -> Path:
+    return user_data_dir(username) / f"{key}.json"
+
+
+def load_saved_state(key: str, username: str | None = None) -> dict[str, dict]:
+    key = _safe_storage_key(key)
+    path = storage_path(key, username)
     if not path.exists():
         return {}
     try:
@@ -846,17 +1244,21 @@ def load_saved_state(key: str) -> dict[str, dict]:
         return {}
 
 
-def save_state(key: str, state: dict[str, dict]) -> None:
-    path = storage_path(key)
+def save_state(key: str, state: dict[str, dict], username: str | None = None) -> None:
+    key = _safe_storage_key(key)
+    path = storage_path(key, username)
     with path.open("w", encoding="utf-8") as handle:
         json.dump(state, handle, ensure_ascii=False, indent=2)
 
 
-def load_user_preferences() -> dict:
-    if not USER_PREFERENCES_PATH.exists():
+def load_user_preferences(username: str | None = None) -> dict:
+    path = user_preferences_path(username)
+    if not path.exists() and USER_PREFERENCES_PATH.exists():
+        path = USER_PREFERENCES_PATH
+    if not path.exists():
         return {}
     try:
-        with USER_PREFERENCES_PATH.open(encoding="utf-8") as handle:
+        with path.open(encoding="utf-8") as handle:
             data = json.load(handle)
         return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, OSError):
@@ -864,10 +1266,13 @@ def load_user_preferences() -> dict:
 
 
 def save_user_preferences(**updates: object) -> None:
+    if not current_user():
+        return
     prefs = load_user_preferences()
     prefs.update(updates)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with USER_PREFERENCES_PATH.open("w", encoding="utf-8") as handle:
+    path = user_preferences_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
         json.dump(prefs, handle, ensure_ascii=False, indent=2)
 
 
@@ -879,9 +1284,56 @@ def apply_saved_user_preferences() -> None:
     language = prefs.get("language")
     if language in ("da", "en"):
         st.session_state.language = language
+    if "sidebar_pinned" in prefs:
+        st.session_state.sidebar_pinned = bool(prefs.get("sidebar_pinned"))
+
+
+def migrate_legacy_data_to_user(username: str) -> None:
+    user_dir = user_data_dir(username)
+    if any(user_dir.iterdir()):
+        return
+
+    for legacy, name in (
+        (LEGACY_ACTIVE_LIST_PARQUET, "active_borgerliste.parquet"),
+        (LEGACY_ACTIVE_LIST_CSV, "active_borgerliste.csv"),
+        (LEGACY_ACTIVE_SESSION_PATH, "active_session.json"),
+    ):
+        if legacy.exists():
+            shutil.copy2(legacy, user_dir / name)
+
+    preserved = {
+        USERS_PATH.name,
+        AUDIT_LOG_PATH.name,
+        MASTER_REFERENCE_REGISTER_PATH.name,
+        USER_PREFERENCES_PATH.name,
+        STATUS_HISTORY_PATH.name,
+    }
+    for path in DATA_DIR.glob("*.json"):
+        if path.name in preserved:
+            continue
+        shutil.copy2(path, user_dir / path.name)
+
+    if USER_PREFERENCES_PATH.exists() and not user_preferences_path(username).exists():
+        shutil.copy2(USER_PREFERENCES_PATH, user_preferences_path(username))
+
+
+def ensure_user_data_loaded() -> None:
+    if not st.session_state.get("authenticated") or not current_user():
+        return
+    username = current_username()
+    if st.session_state.get("user_data_loaded_for") == username:
+        return
+
+    migrate_legacy_data_to_user(username)
+    apply_saved_user_preferences()
+    if st.session_state.citizens_df is None or st.session_state.citizens_df.empty:
+        restore_active_list_if_available()
+    st.session_state.user_data_loaded_for = username
 
 
 def save_active_session_metadata() -> None:
+    if not current_user():
+        return
     df = st.session_state.get("citizens_df")
     if df is None or df.empty:
         return
@@ -896,54 +1348,64 @@ def save_active_session_metadata() -> None:
         "show_uploader": st.session_state.get("show_uploader", False),
         "saved_at": datetime.now().isoformat(timespec="seconds"),
     }
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with ACTIVE_SESSION_PATH.open("w", encoding="utf-8") as handle:
+    session_path = user_active_session_path()
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    with session_path.open("w", encoding="utf-8") as handle:
         json.dump(meta, handle, ensure_ascii=False, indent=2)
 
 
 def save_active_list(df: pd.DataFrame) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not current_user():
+        return
+    parquet_path = user_active_list_parquet()
+    csv_path = user_active_list_csv()
+    parquet_path.parent.mkdir(parents=True, exist_ok=True)
+
     export_df = df.copy()
     for column in ("Navn", "Adresse", "Telefonnummer", "Status", "Status dato", "Ring igen dato"):
         if column in export_df.columns:
-            export_df[column] = export_df[column].map(repair_text)
+            export_df[column] = export_df[column].map(_excel_safe_cell)
 
     saved_as_parquet = False
     try:
-        export_df.to_parquet(ACTIVE_LIST_PARQUET, index=False)
+        export_df.to_parquet(parquet_path, index=False)
         saved_as_parquet = True
-        if ACTIVE_LIST_CSV.exists():
-            ACTIVE_LIST_CSV.unlink()
+        if csv_path.exists():
+            csv_path.unlink()
     except Exception:
-        export_df.to_csv(ACTIVE_LIST_CSV, index=False, encoding="utf-8-sig")
-        if ACTIVE_LIST_PARQUET.exists():
-            ACTIVE_LIST_PARQUET.unlink()
+        export_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+        if parquet_path.exists():
+            parquet_path.unlink()
 
-    if saved_as_parquet or ACTIVE_LIST_CSV.exists():
+    if saved_as_parquet or csv_path.exists():
         save_active_session_metadata()
 
 
-def _read_active_list_file() -> pd.DataFrame | None:
-    if ACTIVE_LIST_PARQUET.exists():
+def _read_active_list_file(username: str | None = None) -> pd.DataFrame | None:
+    parquet_path = user_active_list_parquet(username)
+    csv_path = user_active_list_csv(username)
+
+    if parquet_path.exists():
         try:
-            return pd.read_parquet(ACTIVE_LIST_PARQUET)
+            return pd.read_parquet(parquet_path)
         except Exception:
             pass
 
-    if ACTIVE_LIST_CSV.exists():
+    if csv_path.exists():
         try:
-            return pd.read_csv(ACTIVE_LIST_CSV, encoding="utf-8-sig")
+            return pd.read_csv(csv_path, encoding="utf-8-sig")
         except Exception:
             pass
 
     return None
 
 
-def _load_active_session_metadata() -> dict:
-    if not ACTIVE_SESSION_PATH.exists():
+def _load_active_session_metadata(username: str | None = None) -> dict:
+    session_path = user_active_session_path(username)
+    if not session_path.exists():
         return {}
     try:
-        with ACTIVE_SESSION_PATH.open(encoding="utf-8") as handle:
+        with session_path.open(encoding="utf-8") as handle:
             data = json.load(handle)
         return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, OSError):
@@ -951,6 +1413,9 @@ def _load_active_session_metadata() -> dict:
 
 
 def restore_active_list_if_available() -> bool:
+    if not current_user():
+        return False
+
     df = _read_active_list_file()
     if df is None or df.empty:
         return False
@@ -974,11 +1439,20 @@ def restore_active_list_if_available() -> bool:
         df["_id"] = df.apply(citizen_id, axis=1)
 
     meta = _load_active_session_metadata()
+    list_key = meta.get("list_key")
+    if list_key:
+        list_state = load_saved_state(str(list_key))
+        if list_state:
+            df = apply_saved_statuses(df, list_state)
+    sync_master_from_all_user_data()
+    register = load_master_register()
+    df, _matched = merge_master_register_statuses(df, register)
+
     page_size = meta.get("page_size", 25)
     selected_filter = meta.get("selected_filter", meta.get("filter_key", "all"))
 
     st.session_state.citizens_df = df.reset_index(drop=True)
-    st.session_state.list_key = meta.get("list_key")
+    st.session_state.list_key = list_key
     st.session_state.source_filename = meta.get("source_filename") or "borgerliste"
     st.session_state.page_number = int(meta.get("page_number", 0))
     st.session_state.page_size = page_size if page_size in PAGE_SIZE_OPTIONS else 25
@@ -992,9 +1466,14 @@ def restore_active_list_if_available() -> bool:
 
 
 def clear_active_list() -> None:
-    for path in (ACTIVE_LIST_PARQUET, ACTIVE_LIST_CSV, ACTIVE_SESSION_PATH):
-        if path.exists():
-            path.unlink()
+    if current_user():
+        for path in (
+            user_active_list_parquet(),
+            user_active_list_csv(),
+            user_active_session_path(),
+        ):
+            if path.exists():
+                path.unlink()
 
     st.session_state.citizens_df = None
     st.session_state.list_key = None
@@ -1089,6 +1568,20 @@ def update_citizen_status(full_df: pd.DataFrame, citizen_key: str, new_status: s
     return out
 
 
+def _safe_storage_key(key: str) -> str:
+    cleaned = Path(key).name
+    if not re.fullmatch(r"[\w\-]+", cleaned):
+        raise ValueError("Invalid storage key")
+    return cleaned
+
+
+def _excel_safe_cell(value: object) -> str:
+    text_value = repair_text(value)
+    if text_value and text_value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text_value
+    return text_value
+
+
 def to_excel_bytes(df: pd.DataFrame) -> bytes:
     column_names = {
         "Navn": t("col_name"),
@@ -1100,7 +1593,7 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
     }
     export_df = df[DISPLAY_COLUMNS].copy()
     for column in export_df.columns:
-        export_df[column] = export_df[column].map(repair_text)
+        export_df[column] = export_df[column].map(_excel_safe_cell)
     export_df["Status"] = export_df["Status"].map(lambda s: status_label(s, short=False))
     export_df = export_df.rename(columns=column_names)
 
@@ -1117,65 +1610,1091 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Auth
+# Auth & users
 # ---------------------------------------------------------------------------
 
 
-DEFAULT_MASTER_DELETE_PASSWORD = "Linkin24"
+def role_label(role: str) -> str:
+    if role == "admin":
+        return t("role_admin")
+    return t("role_user")
 
 
-def get_required_password() -> str | None:
-    """Valgfri adgangskode til fuld app-login (kun hvis BORGERLISTE_PASSWORD er sat)."""
-    env_password = os.environ.get("BORGERLISTE_PASSWORD", "").strip()
-    if env_password:
-        return env_password
-    return None
+def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    if salt is None:
+        salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        PASSWORD_HASH_ITERATIONS,
+    )
+    return salt, digest.hex()
 
 
-def get_master_delete_password() -> str:
-    """Adgangskode der kræves ved sletning af master-registeret."""
-    env_password = os.environ.get("BORGERLISTE_MASTER_DELETE_PASSWORD", "").strip()
-    if env_password:
-        return env_password
+def verify_password(password: str, salt: str, password_hash: str) -> bool:
+    _, candidate = hash_password(password, salt)
+    return secrets.compare_digest(candidate, password_hash)
+
+
+def _chmod_sensitive(path: Path) -> None:
     try:
-        secret_password = str(st.secrets.get("master_delete_password", "")).strip()
-        if secret_password:
-            return secret_password
-        secret_password = str(st.secrets.get("password", "")).strip()
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def load_users() -> list[dict]:
+    if not USERS_PATH.exists():
+        return []
+    try:
+        with USERS_PATH.open(encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict) and isinstance(data.get("users"), list):
+            return [entry for entry in data["users"] if isinstance(entry, dict)]
+        if isinstance(data, list):
+            return [entry for entry in data if isinstance(entry, dict)]
+    except (json.JSONDecodeError, OSError):
+        pass
+    return []
+
+
+def save_users(users: list[dict]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with USERS_PATH.open("w", encoding="utf-8") as handle:
+        json.dump({"users": users}, handle, ensure_ascii=False, indent=2)
+    _chmod_sensitive(USERS_PATH)
+
+
+def validate_username(username: str) -> bool:
+    return bool(USERNAME_PATTERN.match(username.strip()))
+
+
+def validate_password_strength(password: str) -> bool:
+    return len(password) >= MIN_PASSWORD_LENGTH
+
+
+def get_default_admin_password() -> str | None:
+    env_password = os.environ.get("BORGERLISTE_ADMIN_PASSWORD", "").strip()
+    if env_password:
+        return env_password
+    legacy_password = os.environ.get("BORGERLISTE_PASSWORD", "").strip()
+    if legacy_password:
+        return legacy_password
+    try:
+        secret_password = str(st.secrets.get("admin_password", "")).strip()
         if secret_password:
             return secret_password
     except Exception:
         pass
-    return DEFAULT_MASTER_DELETE_PASSWORD
+    return None
 
 
-def verify_master_delete_password(password: str) -> bool:
-    return password == get_master_delete_password()
+def ensure_default_admin() -> None:
+    users = load_users()
+    if users:
+        return
+
+    username = os.environ.get("BORGERLISTE_ADMIN_USERNAME", DEFAULT_ADMIN_USERNAME).strip() or DEFAULT_ADMIN_USERNAME
+    password = get_default_admin_password()
+    bootstrap_password = False
+    if not password:
+        password = secrets.token_urlsafe(16)
+        bootstrap_password = True
+
+    salt, password_hash = hash_password(password)
+    save_users(
+        [
+            {
+                "username": username,
+                "salt": salt,
+                "password_hash": password_hash,
+                "role": "admin",
+                "active": True,
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        ]
+    )
+
+    if bootstrap_password:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        BOOTSTRAP_ADMIN_PATH.write_text(
+            f"Username: {username}\nTemporary password: {password}\n",
+            encoding="utf-8",
+        )
+        _chmod_sensitive(BOOTSTRAP_ADMIN_PATH)
+        st.session_state["_bootstrap_notice_text"] = t("bootstrap_admin_notice", path=str(BOOTSTRAP_ADMIN_PATH))
+
+
+def find_user(username: str) -> dict | None:
+    needle = username.strip().lower()
+    for user in load_users():
+        if str(user.get("username", "")).lower() == needle:
+            return user
+    return None
+
+
+def get_user_record(username: str) -> dict | None:
+    return find_user(username)
+
+
+def authenticate_user(username: str, password: str) -> dict | None:
+    user = find_user(username)
+    if not user or not user.get("active", True):
+        return None
+    if not verify_password(password, str(user.get("salt", "")), str(user.get("password_hash", ""))):
+        return None
+    return {
+        "username": str(user["username"]),
+        "role": user.get("role", "user"),
+    }
+
+
+def create_user_account(username: str, password: str, role: str = "user") -> tuple[bool, str]:
+    clean_username = username.strip()
+    if not validate_username(clean_username):
+        return False, t("admin_username_invalid")
+    if not validate_password_strength(password):
+        return False, t("admin_password_weak", min=MIN_PASSWORD_LENGTH)
+    if role not in USER_ROLES:
+        role = "user"
+    if find_user(clean_username):
+        return False, t("admin_user_exists")
+
+    salt, password_hash = hash_password(password)
+    users = load_users()
+    users.append(
+        {
+            "username": clean_username,
+            "salt": salt,
+            "password_hash": password_hash,
+            "role": role,
+            "active": True,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+    save_users(users)
+    return True, t("admin_user_created", username=clean_username)
+
+
+def deactivate_user_account(username: str) -> tuple[bool, str]:
+    if username.strip().lower() == current_username().lower():
+        return False, t("admin_cannot_deactivate_self")
+    users = load_users()
+    changed = False
+    for user in users:
+        if str(user.get("username", "")).lower() == username.strip().lower():
+            user["active"] = False
+            user["deactivated_at"] = datetime.now().isoformat(timespec="seconds")
+            changed = True
+            break
+    if not changed:
+        return False, t("admin_user_invalid", min=MIN_PASSWORD_LENGTH)
+    save_users(users)
+    revoke_user_sessions(username)
+    return True, t("admin_user_deactivated", username=username)
+
+
+def update_user_password(username: str, current_password: str, new_password: str) -> tuple[bool, str]:
+    user = find_user(username)
+    if not user or not user.get("active", True):
+        return False, t("account_password_wrong")
+    if not verify_password(current_password, str(user.get("salt", "")), str(user.get("password_hash", ""))):
+        return False, t("account_password_wrong")
+    if not validate_password_strength(new_password):
+        return False, t("admin_password_weak", min=MIN_PASSWORD_LENGTH)
+
+    salt, password_hash = hash_password(new_password)
+    users = load_users()
+    for entry in users:
+        if str(entry.get("username", "")).lower() == username.strip().lower():
+            entry["salt"] = salt
+            entry["password_hash"] = password_hash
+            entry["password_updated_at"] = datetime.now().isoformat(timespec="seconds")
+            break
+    save_users(users)
+    revoke_user_sessions(username)
+    return True, t("account_password_updated")
+
+
+def admin_reset_user_password(username: str, new_password: str) -> tuple[bool, str]:
+    if not is_admin():
+        return False, t("master_delete_admin_only")
+    if not validate_password_strength(new_password):
+        return False, t("admin_password_weak", min=MIN_PASSWORD_LENGTH)
+    user = find_user(username)
+    if not user or not user.get("active", True):
+        return False, t("admin_user_invalid", min=MIN_PASSWORD_LENGTH)
+
+    salt, password_hash = hash_password(new_password)
+    users = load_users()
+    for entry in users:
+        if str(entry.get("username", "")).lower() == username.strip().lower():
+            entry["salt"] = salt
+            entry["password_hash"] = password_hash
+            entry["password_updated_at"] = datetime.now().isoformat(timespec="seconds")
+            break
+    save_users(users)
+    revoke_user_sessions(username)
+    return True, t("admin_password_reset_done", username=username)
+
+
+def current_user() -> dict | None:
+    user = st.session_state.get("current_user")
+    return user if isinstance(user, dict) else None
+
+
+def current_username() -> str:
+    user = current_user()
+    return str(user["username"]) if user else "unknown"
+
+
+def is_admin() -> bool:
+    user = current_user()
+    return bool(user and user.get("role") == "admin")
+
+
+def refresh_session_user() -> bool:
+    """Genindlæs bruger fra disk og log ud hvis konto er deaktiveret."""
+    if not st.session_state.get("authenticated"):
+        return False
+
+    session_user = current_user()
+    if not session_user:
+        logout_user()
+        return False
+
+    record = find_user(str(session_user.get("username", "")))
+    if not record or not record.get("active", True):
+        logout_user()
+        return False
+
+    st.session_state.current_user = {
+        "username": str(record["username"]),
+        "role": record.get("role", "user"),
+    }
+    return True
+
+
+def _client_ip() -> str:
+    try:
+        headers = st.context.headers
+        if headers:
+            forwarded = headers.get("X-Forwarded-For") or headers.get("x-forwarded-for")
+            if forwarded:
+                return str(forwarded).split(",")[0].strip()[:64]
+            remote = headers.get("X-Real-Ip") or headers.get("x-real-ip")
+            if remote:
+                return str(remote).strip()[:64]
+    except Exception:
+        pass
+    return "local"
+
+
+def _load_login_attempts() -> dict[str, dict]:
+    if not LOGIN_ATTEMPTS_PATH.exists():
+        return {}
+    try:
+        with LOGIN_ATTEMPTS_PATH.open(encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_login_attempts(data: dict[str, dict]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with LOGIN_ATTEMPTS_PATH.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+    _chmod_sensitive(LOGIN_ATTEMPTS_PATH)
+
+
+def check_login_rate_limit() -> tuple[bool, int]:
+    client = _client_ip()
+    attempts = _load_login_attempts()
+    entry = attempts.get(client, {})
+    locked_until = float(entry.get("locked_until", 0))
+    now = datetime.now().timestamp()
+    if locked_until > now:
+        return False, max(1, int((locked_until - now + 59) // 60))
+    if locked_until and locked_until <= now:
+        attempts.pop(client, None)
+        _save_login_attempts(attempts)
+    return True, 0
+
+
+def record_failed_login() -> None:
+    client = _client_ip()
+    attempts = _load_login_attempts()
+    entry = attempts.get(client, {"count": 0})
+    count = int(entry.get("count", 0)) + 1
+    payload: dict[str, object] = {"count": count, "last_failed": datetime.now().isoformat(timespec="seconds")}
+    if count >= LOGIN_MAX_ATTEMPTS:
+        payload["locked_until"] = datetime.now().timestamp() + LOGIN_LOCKOUT_SECONDS
+        payload["count"] = 0
+    attempts[client] = payload
+    _save_login_attempts(attempts)
+
+
+def clear_login_attempts() -> None:
+    client = _client_ip()
+    attempts = _load_login_attempts()
+    if client in attempts:
+        attempts.pop(client, None)
+        _save_login_attempts(attempts)
+
+
+def load_audit_log() -> list[dict]:
+    if not AUDIT_LOG_PATH.exists():
+        return []
+    try:
+        with AUDIT_LOG_PATH.open(encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict) and isinstance(data.get("entries"), list):
+            return [entry for entry in data["entries"] if isinstance(entry, dict)]
+        if isinstance(data, list):
+            return [entry for entry in data if isinstance(entry, dict)]
+    except (json.JSONDecodeError, OSError):
+        pass
+    return []
+
+
+def save_audit_log(entries: list[dict]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    trimmed = entries[-MAX_AUDIT_ENTRIES:]
+    with AUDIT_LOG_PATH.open("w", encoding="utf-8") as handle:
+        json.dump({"entries": trimmed}, handle, ensure_ascii=False, indent=2)
+
+
+def append_audit_log(
+    *,
+    citizen_id: str,
+    citizen_name: str,
+    citizen_address: str,
+    citizen_phone: str,
+    old_status: str,
+    new_status: str,
+    list_key: str | None,
+) -> None:
+    entry = {
+        "id": secrets.token_hex(8),
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "username": current_username(),
+        "role": current_user().get("role", "user") if current_user() else "user",
+        "citizen_id": citizen_id,
+        "citizen_name": repair_text(citizen_name),
+        "citizen_address": repair_text(citizen_address),
+        "citizen_phone": repair_text(citizen_phone),
+        "old_status": old_status,
+        "new_status": new_status,
+        "list_key": list_key,
+    }
+    entries = load_audit_log()
+    entries.append(entry)
+    save_audit_log(entries)
+
+
+def latest_audit_for_citizen(citizen_id: str) -> dict | None:
+    for entry in reversed(load_audit_log()):
+        if entry.get("citizen_id") == citizen_id:
+            return entry
+    return None
+
+
+def verify_admin_master_delete(password: str) -> bool:
+    """Kun aktive administratorer kan slette master-register — med egen adgangskode."""
+    if not is_admin():
+        return False
+    user = find_user(current_username())
+    if not user or not user.get("active", True) or user.get("role") != "admin":
+        return False
+    return verify_password(password, str(user.get("salt", "")), str(user.get("password_hash", "")))
+
+
+def get_cookie_manager() -> stx.CookieManager:
+    """Én CookieManager pr. Streamlit-run — instance-key må ikke matche widget-key."""
+    if COOKIE_MANAGER_INSTANCE_KEY not in st.session_state:
+        st.session_state[COOKIE_MANAGER_INSTANCE_KEY] = stx.CookieManager(key=COOKIE_MANAGER_KEY)
+    return st.session_state[COOKIE_MANAGER_INSTANCE_KEY]
+
+
+def load_app_settings() -> dict:
+    if not APP_SETTINGS_PATH.exists():
+        return {}
+    try:
+        with APP_SETTINGS_PATH.open(encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_app_settings(**updates: object) -> None:
+    settings = load_app_settings()
+    settings.update(updates)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with APP_SETTINGS_PATH.open("w", encoding="utf-8") as handle:
+        json.dump(settings, handle, ensure_ascii=False, indent=2)
+    _chmod_sensitive(APP_SETTINGS_PATH)
+
+
+def configured_session_idle_hours() -> float:
+    settings = load_app_settings()
+    raw = settings.get("session_idle_hours")
+    if raw is not None:
+        try:
+            return max(MIN_SESSION_IDLE_HOURS, min(MAX_SESSION_IDLE_HOURS, float(raw)))
+        except (TypeError, ValueError):
+            pass
+    env_raw = os.environ.get("BORGERLISTE_SESSION_IDLE_HOURS", str(DEFAULT_SESSION_IDLE_HOURS)).strip()
+    try:
+        hours = float(env_raw)
+    except ValueError:
+        hours = float(DEFAULT_SESSION_IDLE_HOURS)
+    return max(MIN_SESSION_IDLE_HOURS, min(MAX_SESSION_IDLE_HOURS, hours))
+
+
+def session_idle_timeout_seconds() -> int:
+    return max(3600, int(configured_session_idle_hours() * 3600))
+
+
+def session_max_age_seconds() -> int:
+    raw = os.environ.get("BORGERLISTE_SESSION_MAX_DAYS", str(DEFAULT_SESSION_MAX_DAYS)).strip()
+    try:
+        days = float(raw)
+    except ValueError:
+        days = float(DEFAULT_SESSION_MAX_DAYS)
+    return max(1, int(days * 86400))
+
+
+def _load_auth_sessions() -> dict[str, dict]:
+    if not AUTH_SESSIONS_PATH.exists():
+        return {}
+    try:
+        with AUTH_SESSIONS_PATH.open(encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict) and isinstance(data.get("sessions"), dict):
+            return {key: value for key, value in data["sessions"].items() if isinstance(value, dict)}
+    except (json.JSONDecodeError, OSError):
+        pass
+    return {}
+
+
+def _save_auth_sessions(sessions: dict[str, dict]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with AUTH_SESSIONS_PATH.open("w", encoding="utf-8") as handle:
+        json.dump({"sessions": sessions}, handle, ensure_ascii=False, indent=2)
+    _chmod_sensitive(AUTH_SESSIONS_PATH)
+
+
+def _session_timestamps(entry: dict) -> tuple[datetime, datetime] | None:
+    try:
+        created = datetime.fromisoformat(str(entry.get("created_at", "")))
+        last_activity = datetime.fromisoformat(str(entry.get("last_activity", "")))
+    except ValueError:
+        return None
+    return created, last_activity
+
+
+def _session_is_expired(entry: dict, *, now: datetime | None = None) -> bool:
+    stamps = _session_timestamps(entry)
+    if stamps is None:
+        return True
+    created, last_activity = stamps
+    current = now or datetime.now()
+    idle_seconds = (current - last_activity).total_seconds()
+    age_seconds = (current - created).total_seconds()
+    return idle_seconds > session_idle_timeout_seconds() or age_seconds > session_max_age_seconds()
+
+
+def prune_expired_auth_sessions() -> None:
+    sessions = _load_auth_sessions()
+    changed = False
+    for token in list(sessions.keys()):
+        if _session_is_expired(sessions[token]):
+            sessions.pop(token, None)
+            changed = True
+    if changed:
+        _save_auth_sessions(sessions)
+
+
+def revoke_persistent_session(token: str) -> None:
+    if not token:
+        return
+    sessions = _load_auth_sessions()
+    if token in sessions:
+        sessions.pop(token, None)
+        _save_auth_sessions(sessions)
+
+
+def revoke_user_sessions(username: str) -> None:
+    needle = username.strip().lower()
+    sessions = _load_auth_sessions()
+    changed = False
+    for token, entry in list(sessions.items()):
+        if str(entry.get("username", "")).lower() == needle:
+            sessions.pop(token, None)
+            changed = True
+    if changed:
+        _save_auth_sessions(sessions)
+
+
+def create_persistent_session(account: dict, *, sync_cookie: bool = False) -> str:
+    """Opret persistent session-token i auth_sessions.json."""
+    prune_expired_auth_sessions()
+    token = secrets.token_urlsafe(32)
+    now = datetime.now().isoformat(timespec="seconds")
+    sessions = _load_auth_sessions()
+    sessions[token] = {
+        "username": account["username"],
+        "role": account.get("role", "user"),
+        "created_at": now,
+        "last_activity": now,
+    }
+    _save_auth_sessions(sessions)
+    if sync_cookie:
+        set_persistent_session_cookie(token)
+    return token
+
+
+def _account_from_session_entry(entry: dict) -> dict | None:
+    user = find_user(str(entry.get("username", "")))
+    if not user or not user.get("active", True):
+        return None
+    return {
+        "username": str(user["username"]),
+        "role": user.get("role", "user"),
+    }
+
+
+def validate_persistent_session(token: str, *, touch: bool = True) -> dict | None:
+    if not token or len(token) > 128:
+        return None
+    sessions = _load_auth_sessions()
+    entry = sessions.get(token)
+    if not entry:
+        return None
+    if _session_is_expired(entry):
+        sessions.pop(token, None)
+        _save_auth_sessions(sessions)
+        return None
+
+    account = _account_from_session_entry(entry)
+    if not account:
+        sessions.pop(token, None)
+        _save_auth_sessions(sessions)
+        return None
+
+    if touch:
+        entry["last_activity"] = datetime.now().isoformat(timespec="seconds")
+        entry["role"] = account["role"]
+        sessions[token] = entry
+        _save_auth_sessions(sessions)
+    return account
+
+
+def set_persistent_session_cookie(token: str) -> None:
+    expires_at = datetime.now() + timedelta(seconds=session_max_age_seconds())
+    get_cookie_manager().set(
+        SESSION_COOKIE_NAME,
+        token,
+        expires_at=expires_at,
+        same_site="lax",
+        key="set_session_cookie",
+    )
+
+
+def clear_persistent_session_cookie() -> None:
+    try:
+        manager = get_cookie_manager()
+        manager.cookie_manager(
+            method="delete",
+            cookie=SESSION_COOKIE_NAME,
+            key="clear_session_cookie",
+            default=False,
+        )
+        manager.cookies.pop(SESSION_COOKIE_NAME, None)
+    except Exception:
+        pass
+
+
+def _session_cookie_token() -> str | None:
+    """Læs session-cookie — foretræk Streamlit context (synkront ved page load)."""
+    try:
+        cookies = st.context.cookies
+        if cookies and SESSION_COOKIE_NAME in cookies:
+            return str(cookies[SESSION_COOKIE_NAME])
+    except Exception:
+        pass
+    raw = get_cookie_manager().get(SESSION_COOKIE_NAME)
+    return str(raw) if raw else None
+
+
+def prepare_cookie_reading() -> None:
+    """Mount CookieManager én gang før restore (kun for uloggede besøg)."""
+    if st.session_state.get("authenticated"):
+        return
+    if st.session_state.get("_cookie_init_done"):
+        return
+    get_cookie_manager().get_all()
+    st.session_state._cookie_init_done = True
+
+
+def try_restore_auth_from_cookie() -> bool:
+    """Gendan login fra cookie når session state er tom (kun kaldt fra main())."""
+    token = _session_cookie_token()
+    if not token:
+        return False
+
+    account = validate_persistent_session(str(token), touch=True)
+    if not account:
+        clear_persistent_session_cookie()
+        revoke_persistent_session(str(token))
+        st.session_state.session_expired_notice = True
+        return False
+
+    st.session_state.authenticated = True
+    st.session_state.current_user = account
+    st.session_state.auth_token = str(token)
+    return True
+
+
+def ensure_auth_cookie_synced() -> None:
+    """Synkroniser browser-cookie én gang efter vellykket login."""
+    token = st.session_state.get("auth_token")
+    if not token or not st.session_state.get("authenticated"):
+        return
+    if st.session_state.get("cookie_synced_for_token") == token:
+        return
+    try:
+        set_persistent_session_cookie(str(token))
+        st.session_state.cookie_synced_for_token = token
+    except Exception:
+        pass
+
+
+def logout_user() -> None:
+    token = st.session_state.get("auth_token")
+    if token:
+        revoke_persistent_session(str(token))
+    clear_persistent_session_cookie()
+    st.session_state.authenticated = False
+    st.session_state.current_user = None
+    st.session_state.auth_token = None
+    st.session_state.cookie_synced_for_token = None
+    st.session_state._cookie_init_done = False
+    st.session_state.active_page = "borgerliste"
+    st.session_state.user_data_loaded_for = None
+    st.session_state.citizens_df = None
+    st.session_state.list_key = None
+    st.session_state.source_filename = None
+
+
+def _logo_base64() -> str:
+    return base64.b64encode(LOGO_PATH.read_bytes()).decode("ascii")
+
+
+def _login_page_css() -> str:
+    return """
+html:has(#login-page-anchor) [data-testid="stSidebar"] > div:first-child {
+    padding-top: 1rem;
+}
+
+html:has(#login-page-anchor) .block-container {
+    padding-top: 2.5rem;
+    padding-bottom: 3rem;
+}
+
+.login-hero {
+    text-align: center;
+    margin: 0 auto 1.75rem;
+    max-width: 26rem;
+}
+
+.login-logo-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1.1rem;
+}
+
+.login-logo-wrap img,
+.login-logo-wrap svg {
+    width: 6.5rem;
+    height: 6.5rem;
+    filter: drop-shadow(0 10px 24px rgba(37, 99, 235, 0.28));
+}
+
+.login-brand-title {
+    font-size: 2.15rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+    margin: 0 0 0.35rem 0;
+    color: var(--app-text, #1C1917);
+}
+
+.login-brand-subtitle {
+    font-size: 1.02rem;
+    line-height: 1.45;
+    margin: 0;
+    color: var(--app-text-muted, #64748B);
+}
+
+html:has(#login-page-anchor) [data-testid="stFormSubmitButton"] > button {
+    margin-top: 0.35rem;
+    min-height: 2.75rem !important;
+    font-weight: 600 !important;
+    border-radius: 10px !important;
+}
+
+@media (max-width: 768px) {
+    html:has(#login-page-anchor) .block-container {
+        padding-top: 1.5rem;
+    }
+
+    .login-brand-title {
+        font-size: 1.75rem;
+    }
+}
+"""
 
 
 def render_login() -> bool:
-    required = get_required_password()
-    if not required:
-        st.session_state.authenticated = True
-        return True
+    ensure_default_admin()
 
     if st.session_state.get("authenticated"):
-        return True
+        if refresh_session_user():
+            token = st.session_state.get("auth_token")
+            if token:
+                validate_persistent_session(str(token), touch=True)
+            return True
+        logout_user()
+        return False
 
-    st.markdown(f"## {t('login_title')}")
-    st.caption(t("login_caption"))
+    if st.session_state.pop("session_expired_notice", False):
+        st.warning(t("login_session_expired"))
 
-    with st.form("login_form"):
-        password = st.text_input(t("login_password"), type="password")
-        submitted = st.form_submit_button(t("login_submit"), type="primary", use_container_width=True)
+    if notice := st.session_state.pop("_bootstrap_notice_text", None):
+        st.info(notice)
 
-    if submitted:
-        if password == required:
-            st.session_state.authenticated = True
-            st.rerun()
-        st.error(t("login_error"))
+    allowed, minutes = check_login_rate_limit()
+    st.markdown('<div id="login-page-anchor"></div>', unsafe_allow_html=True)
+    st.markdown('<div id="login-card-anchor"></div>', unsafe_allow_html=True)
+
+    _, center, _ = st.columns([0.65, 1, 0.65])
+    with center:
+        logo_html = ""
+        if LOGO_PATH.exists():
+            logo_html = (
+                f'<div class="login-logo-wrap">'
+                f'<img src="data:image/svg+xml;base64,{_logo_base64()}" alt="{html.escape(t("app_title"))}"/>'
+                f"</div>"
+            )
+
+        st.markdown(
+            f'<div class="login-hero">{logo_html}'
+            f'<p class="login-brand-title">{html.escape(t("app_title"))}</p>'
+            f'<p class="login-brand-subtitle">{html.escape(t("app_subtitle"))}</p>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        if not allowed:
+            st.error(t("login_locked_out", minutes=minutes))
+            return False
+
+        with st.container(border=True):
+            st.markdown(f"### {t('login_title')}")
+            st.caption(t("login_caption"))
+            st.caption(t("session_valid_for", hours=int(configured_session_idle_hours())))
+
+            with st.form("login_form"):
+                username = st.text_input(t("login_username"))
+                password = st.text_input(t("login_password"), type="password")
+                submitted = st.form_submit_button(t("login_submit"), type="primary", use_container_width=True)
+
+            if submitted:
+                account = authenticate_user(username, password)
+                if account:
+                    clear_login_attempts()
+                    token = create_persistent_session(account, sync_cookie=False)
+                    st.session_state.auth_token = token
+                    st.session_state.authenticated = True
+                    st.session_state.current_user = account
+                    if BOOTSTRAP_ADMIN_PATH.exists() and username.strip().lower() == account["username"].lower():
+                        try:
+                            BOOTSTRAP_ADMIN_PATH.unlink()
+                        except OSError:
+                            pass
+                    st.rerun()
+                else:
+                    record_failed_login()
+                    st.error(t("login_error"))
 
     return False
+
+
+def render_sidebar_pin_bridge() -> None:
+    """Skjult Streamlit-knap i sidebar som header-pin udløser."""
+    with st.sidebar:
+        if st.button(
+            "\u200b",
+            key="borgerliste_pin_bridge",
+            help="borgerliste-pin-bridge",
+            type="secondary",
+        ):
+            st.session_state.sidebar_pinned = not bool(st.session_state.get("sidebar_pinned"))
+            save_user_preferences(sidebar_pinned=st.session_state.sidebar_pinned)
+            st.rerun()
+
+
+def finalize_sidebar_controls(*, show_pin: bool) -> None:
+    inject_sidebar_controls(
+        pinned=bool(st.session_state.get("sidebar_pinned")),
+        show_pin=show_pin,
+        pin_label=t("sidebar_pin"),
+        unpin_label=t("sidebar_unpin"),
+    )
+
+
+def render_page_navigation() -> None:
+    render_sidebar_pin_bridge()
+    current_page = st.session_state.get("active_page", "borgerliste")
+    st.sidebar.markdown(f'<p class="sidebar-menu-label">{html.escape(t("menu"))}</p>', unsafe_allow_html=True)
+    if st.sidebar.button(
+        t("nav_borgerliste"),
+        use_container_width=True,
+        type="primary" if current_page == "borgerliste" else "secondary",
+        key="nav_borgerliste",
+    ):
+        st.session_state.active_page = "borgerliste"
+        st.rerun()
+    if st.sidebar.button(
+        t("nav_account"),
+        use_container_width=True,
+        type="primary" if current_page == "account" else "secondary",
+        key="nav_account",
+    ):
+        st.session_state.active_page = "account"
+        st.rerun()
+    st.sidebar.markdown('<div class="sidebar-divider-spacer"></div>', unsafe_allow_html=True)
+
+
+def render_profile_section() -> None:
+    user = current_user()
+    if not user:
+        return
+
+    record = get_user_record(user["username"]) or {}
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text_input(t("account_username_label"), value=user["username"], disabled=True)
+    with col2:
+        st.text_input(t("account_role_label"), value=role_label(str(user.get("role", "user"))), disabled=True)
+    if record.get("created_at"):
+        st.caption(f"{t('account_created_label')}: {record['created_at']}")
+
+    st.markdown(f"#### {t('account_change_password_title')}")
+    st.caption(t("account_password_hint", min=MIN_PASSWORD_LENGTH))
+    with st.form("change_password_form", clear_on_submit=True):
+        current_password = st.text_input(t("account_current_password"), type="password")
+        new_password = st.text_input(t("account_new_password"), type="password")
+        confirm_password = st.text_input(t("account_confirm_password"), type="password")
+        submitted = st.form_submit_button(t("account_password_submit"), type="primary", use_container_width=True)
+        if submitted:
+            if new_password != confirm_password:
+                st.error(t("account_password_mismatch"))
+            else:
+                ok, message = update_user_password(user["username"], current_password, new_password)
+                if ok:
+                    st.success(message)
+                else:
+                    st.error(message)
+
+
+def render_admin_settings_section() -> None:
+    st.markdown(f"#### {t('admin_session_title')}")
+    current_hours = int(configured_session_idle_hours())
+    st.caption(t("admin_session_current", hours=current_hours))
+    st.caption(t("admin_session_idle_help"))
+
+    with st.form("admin_session_settings_form"):
+        idle_hours = st.number_input(
+            t("admin_session_idle_label"),
+            min_value=MIN_SESSION_IDLE_HOURS,
+            max_value=MAX_SESSION_IDLE_HOURS,
+            value=current_hours,
+            step=1,
+        )
+        submitted = st.form_submit_button(t("admin_session_save"), use_container_width=True)
+        if submitted:
+            try:
+                hours = int(idle_hours)
+            except (TypeError, ValueError):
+                hours = -1
+            if not MIN_SESSION_IDLE_HOURS <= hours <= MAX_SESSION_IDLE_HOURS:
+                st.error(
+                    t(
+                        "admin_session_idle_invalid",
+                        min=MIN_SESSION_IDLE_HOURS,
+                        max=MAX_SESSION_IDLE_HOURS,
+                    )
+                )
+            else:
+                save_app_settings(session_idle_hours=hours)
+                st.success(t("admin_session_idle_saved"))
+                st.rerun()
+
+
+def render_admin_users_section() -> None:
+    st.markdown(f"#### {t('admin_users_title')}")
+
+    with st.expander(t("admin_create_user"), expanded=False):
+        with st.form("create_user_form", clear_on_submit=True):
+            username = st.text_input(t("admin_new_username"))
+            password = st.text_input(t("admin_new_password"), type="password")
+            role = st.selectbox(t("admin_new_role"), USER_ROLES, format_func=role_label)
+            submitted = st.form_submit_button(t("admin_create_submit"), use_container_width=True)
+            if submitted:
+                ok, message = create_user_account(username, password, role)
+                if ok:
+                    st.success(message)
+                    st.rerun()
+                st.error(message)
+
+    users = load_users()
+    if not users:
+        st.info(t("admin_no_users"))
+        return
+
+    for user in users:
+        username = str(user.get("username", ""))
+        active = bool(user.get("active", True))
+        status = "✅" if active else "⛔"
+        with st.container(border=True):
+            st.markdown(f"{status} **{html.escape(username)}** · {role_label(str(user.get('role', 'user')))}")
+            if user.get("created_at"):
+                st.caption(f"{t('account_created_label')}: {user['created_at']}")
+
+            if active and username != current_username():
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(t("admin_deactivate"), key=f"deactivate_{username}", use_container_width=True):
+                        ok, message = deactivate_user_account(username)
+                        if ok:
+                            st.toast(message, icon="✅")
+                            st.rerun()
+                        st.error(message)
+                with col2:
+                    with st.expander(t("admin_reset_password"), expanded=False):
+                        with st.form(f"reset_password_{username}", clear_on_submit=True):
+                            new_password = st.text_input(
+                                t("admin_reset_password_for", username=username),
+                                type="password",
+                                key=f"reset_pw_{username}",
+                            )
+                            if st.form_submit_button(t("admin_reset_password"), use_container_width=True):
+                                ok, message = admin_reset_user_password(username, new_password)
+                                if ok:
+                                    st.success(message)
+                                else:
+                                    st.error(message)
+            elif active and username == current_username():
+                st.caption(t("admin_cannot_deactivate_self"))
+
+
+def render_admin_master_section() -> None:
+    sync_master_from_all_user_data()
+    register = load_master_register()
+    st.caption(t("master_admin_description"))
+    st.metric("Master", len(register))
+    st.caption(t("master_register_count", count=len(register)))
+
+    with st.expander(t("clear_master_register"), expanded=False):
+        st.caption(t("master_delete_warning"))
+
+        with st.form("master_delete_form", clear_on_submit=True):
+            password = st.text_input(t("master_delete_password"), type="password")
+            submitted = st.form_submit_button(t("master_delete_confirm"), use_container_width=True)
+            if submitted:
+                if verify_admin_master_delete(password):
+                    clear_master_register()
+                    st.session_state.user_data_loaded_for = None
+                    st.toast(t("master_register_cleared"), icon="✅")
+                    st.rerun()
+                st.error(t("master_delete_password_error"))
+
+
+def render_audit_log_section() -> None:
+    st.markdown(f"#### {t('admin_audit_title')}")
+    st.caption(t("admin_audit_caption"))
+    entries = load_audit_log()
+    if not entries:
+        st.info(t("admin_audit_empty"))
+        return
+
+    filter_cols = st.columns(2)
+    usernames = sorted({str(entry.get("username", "")) for entry in entries if entry.get("username")})
+    with filter_cols[0]:
+        filter_user = st.selectbox(
+            t("admin_audit_filter_user"),
+            [t("admin_audit_all_users"), *usernames],
+        )
+    with filter_cols[1]:
+        filter_citizen = st.text_input(t("admin_audit_filter_citizen"))
+
+    filtered = entries
+    if filter_user != t("admin_audit_all_users"):
+        filtered = [entry for entry in filtered if entry.get("username") == filter_user]
+    if filter_citizen.strip():
+        needle = filter_citizen.strip().lower()
+        filtered = [
+            entry
+            for entry in filtered
+            if needle in str(entry.get("citizen_name", "")).lower()
+            or needle in str(entry.get("citizen_address", "")).lower()
+            or needle in str(entry.get("citizen_phone", "")).lower()
+        ]
+
+    rows = []
+    for entry in reversed(filtered[-500:]):
+        rows.append(
+            {
+                t("admin_audit_col_time"): entry.get("timestamp", ""),
+                t("admin_audit_col_user"): entry.get("username", ""),
+                t("admin_audit_col_citizen"): entry.get("citizen_name", ""),
+                t("admin_audit_col_from"): status_label(str(entry.get("old_status", "")), short=True),
+                t("admin_audit_col_to"): status_label(str(entry.get("new_status", "")), short=True),
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def render_account_page() -> None:
+    st.title(t("account_title"))
+    tab_labels = [t("account_profile_tab")]
+    if is_admin():
+        tab_labels.extend(
+            [
+                t("account_admin_users_tab"),
+                t("account_admin_settings_tab"),
+                t("account_admin_master_tab"),
+                t("account_admin_audit_tab"),
+            ]
+        )
+
+    tabs = st.tabs(tab_labels)
+    with tabs[0]:
+        render_profile_section()
+    if is_admin():
+        with tabs[1]:
+            render_admin_users_section()
+        with tabs[2]:
+            render_admin_settings_section()
+        with tabs[3]:
+            render_admin_master_section()
+        with tabs[4]:
+            render_audit_log_section()
 
 
 # ---------------------------------------------------------------------------
@@ -1186,7 +2705,7 @@ def render_login() -> bool:
 def status_pill_html(status: str, short: bool = True) -> str:
     pill_class = STATUS_PILL_CLASS.get(status, "status-pill--neutral")
     label = status_label(status, short=short)
-    return f'<span class="status-pill {pill_class}">{label}</span>'
+    return f'<span class="status-pill {pill_class}">{html.escape(label)}</span>'
 
 
 def citizen_field_html(label: str, value: object, *, emphasized: bool = False) -> str:
@@ -1700,6 +3219,19 @@ def _base_css_rules(browse_label: str) -> str:
     """Layout, upload-i18n og diskrete sidebar-knapper — bruges i alle temaer."""
     safe_label = browse_label.replace("\\", "\\\\").replace('"', '\\"')
     return f"""
+
+#login-card-anchor + [data-testid="stElementContainer"] [data-testid="stVerticalBlockBorderWrapper"] {{
+    background: var(--app-card-bg, #FFFFFF) !important;
+    border: 1px solid var(--app-border, #E7E5E4) !important;
+    border-radius: 18px !important;
+    padding: 1.15rem 1.35rem 0.85rem !important;
+    box-shadow: 0 16px 48px rgba(15, 23, 42, 0.08) !important;
+}}
+
+html:has(.dark-theme) #login-card-anchor + [data-testid="stElementContainer"] [data-testid="stVerticalBlockBorderWrapper"] {{
+    box-shadow: 0 18px 52px rgba(0, 0, 0, 0.38) !important;
+}}
+
 .block-container {{
     max-width: 920px;
     padding-top: 1.25rem;
@@ -1895,6 +3427,207 @@ def _base_css_rules(browse_label: str) -> str:
     border-color: {PRIMARY_COLOR} !important;
 }}
 
+[data-testid="stSidebar"] {{
+    box-shadow: 10px 0 36px rgba(15, 23, 42, 0.07);
+    border-right: 1px solid var(--app-border, #E7E5E4);
+}}
+
+[data-testid="stSidebar"] > div:first-child {{
+    padding: 0.9rem 0.8rem 1.35rem !important;
+    background: linear-gradient(
+        180deg,
+        var(--app-bg-secondary, #F5F5F4) 0%,
+        var(--app-bg, #FAFAF9) 100%
+    ) !important;
+}}
+
+html:has(.dark-theme) [data-testid="stSidebar"] {{
+    box-shadow: 10px 0 40px rgba(0, 0, 0, 0.35);
+}}
+
+.sidebar-menu-label {{
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--app-text-muted, #64748B);
+    margin: 0 0 0.35rem 0.2rem;
+    line-height: 1.2;
+}}
+
+.sidebar-user-pill {{
+    display: flex;
+    flex-direction: column;
+    gap: 0.12rem;
+    padding: 0.62rem 0.72rem;
+    margin: 0.15rem 0 0.65rem;
+    border-radius: 12px;
+    background: rgba(37, 99, 235, 0.07);
+    border: 1px solid rgba(37, 99, 235, 0.14);
+}}
+
+.sidebar-user-name {{
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--app-text, #1C1917);
+    line-height: 1.25;
+}}
+
+.sidebar-user-role {{
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--app-text-muted, #64748B);
+    letter-spacing: 0.02em;
+}}
+
+.sidebar-divider-spacer {{
+    height: 0.55rem;
+}}
+
+.sidebar-settings-panel {{
+    margin-top: 0.15rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid var(--app-border, #E7E5E4);
+}}
+
+[data-testid="stSidebar"] .stButton > button {{
+    border-radius: 10px !important;
+    min-height: 2.4rem !important;
+    font-size: 0.88rem !important;
+    font-weight: 600 !important;
+    box-shadow: none !important;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}}
+
+[data-testid="stSidebar"] .stButton > button[kind="secondary"],
+[data-testid="stSidebar"] .stButton > button[data-testid="stBaseButton-secondary"] {{
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    color: var(--app-text-muted, #64748B) !important;
+}}
+
+[data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover,
+[data-testid="stSidebar"] .stButton > button[data-testid="stBaseButton-secondary"]:hover {{
+    background: rgba(37, 99, 235, 0.06) !important;
+    border-color: rgba(37, 99, 235, 0.12) !important;
+    color: var(--app-text, #1C1917) !important;
+}}
+
+[data-testid="stSidebar"] .stButton > button[kind="primary"],
+[data-testid="stSidebar"] .stButton > button[data-testid="stBaseButton-primary"] {{
+    background: rgba(37, 99, 235, 0.12) !important;
+    border: 1px solid rgba(37, 99, 235, 0.28) !important;
+    color: {PRIMARY_COLOR} !important;
+    font-weight: 700 !important;
+}}
+
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {{
+    margin-bottom: 0.25rem;
+}}
+
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {{
+    font-size: 0.68rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--app-text-muted, #64748B) !important;
+    opacity: 0.85;
+}}
+
+[data-testid="stSidebar"] [data-testid="stExpander"] {{
+    border: 1px solid var(--app-border, #E7E5E4) !important;
+    border-radius: 10px !important;
+    overflow: hidden;
+    background: transparent !important;
+}}
+
+[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
+    font-size: 0.82rem !important;
+    font-weight: 600 !important;
+    padding: 0.45rem 0.55rem !important;
+}}
+
+[data-testid="stSidebar"] hr {{
+    margin: 0.5rem 0 !important;
+    opacity: 0.25;
+}}
+
+.borgerliste-pin-bridge {{
+    display: none !important;
+}}
+
+[data-testid="stSidebar"] .st-key-borgerliste_pin_bridge {{
+    position: fixed !important;
+    left: -10000px !important;
+    top: 0 !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    z-index: -1 !important;
+    clip: rect(0, 0, 0, 0) !important;
+}}
+
+[data-testid="stSidebar"] .st-key-borgerliste_pin_bridge [data-testid="stButton"] > button {{
+    min-height: 0 !important;
+    height: 1px !important;
+    width: 1px !important;
+    padding: 0 !important;
+    font-size: 0 !important;
+    line-height: 0 !important;
+    border: none !important;
+    background: transparent !important;
+}}
+
+.borgerliste-pin-host {{
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.2rem !important;
+    vertical-align: middle !important;
+}}
+
+.borgerliste-header-pin {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.72;
+    flex: 0 0 auto;
+    line-height: 1;
+    pointer-events: auto;
+    transition: background 0.15s ease, opacity 0.15s ease, color 0.15s ease;
+}}
+
+.borgerliste-header-pin:hover {{
+    opacity: 1;
+    background: rgba(128, 131, 145, 0.14);
+}}
+
+.borgerliste-header-pin.is-pinned {{
+    opacity: 1;
+    color: {PRIMARY_COLOR};
+}}
+
+.borgerliste-header-pin svg {{
+    display: block;
+    width: 1.125rem;
+    height: 1.125rem;
+    fill: currentColor;
+}}
+
+[data-testid="stAppViewContainer"] iframe[height="0"] {{
+    pointer-events: none !important;
+}}
+
 @media (max-width: 1024px) {{
     .kpi-grid {{
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2078,7 +3811,7 @@ div[data-baseweb="select"] svg {{
 
 def inject_styles(theme_choice: str) -> None:
     """Indsprøjter CSS i præcis én <style>-blok — aldrig synlig rå tekst."""
-    css_parts = [_base_css_rules(t("upload_browse"))]
+    css_parts = [_base_css_rules(t("upload_browse")), _login_page_css()]
 
     if theme_choice == "Browser standard":
         light = THEME_PALETTES["Lyst tema"]
@@ -2108,6 +3841,208 @@ def inject_styles(theme_choice: str) -> None:
     css = "<style>\n" + "\n".join(css_parts) + "\n</style>"
     st.markdown(css, unsafe_allow_html=True)
     _inject_theme_class(theme_choice)
+
+
+def inject_sidebar_controls(
+    delay_seconds: int = SIDEBAR_AUTO_COLLAPSE_SECONDS,
+    *,
+    pinned: bool = False,
+    show_pin: bool = False,
+    pin_label: str = "",
+    unpin_label: str = "",
+) -> None:
+    """Header-pin ved sidebar-toggle + auto-luk (letvægts, uden DOM-overvågning)."""
+    delay_ms = max(1, int(delay_seconds)) * 1000
+    pinned_js = "true" if pinned else "false"
+    show_pin_js = "true" if show_pin else "false"
+    pin_svg = (
+        '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+        '<path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/>'
+        "</svg>"
+    )
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            const win = window.parent;
+            const doc = win.document;
+            const cfg = win.__borgerlisteSidebar || (win.__borgerlisteSidebar = {{}});
+            if (cfg.pinObserver) {{
+                cfg.pinObserver.disconnect();
+                delete cfg.pinObserver;
+            }}
+            cfg.delay = {delay_ms};
+            cfg.pinned = {pinned_js};
+            cfg.showPin = {show_pin_js};
+            cfg.pinLabel = {json.dumps(pin_label)};
+            cfg.unpinLabel = {json.dumps(unpin_label)};
+            cfg.pinIcon = {json.dumps(pin_svg)};
+
+            if (!cfg.ready) {{
+                cfg.ready = true;
+
+                cfg.isSidebarExpanded = function() {{
+                    const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+                    return !!sidebar && sidebar.getBoundingClientRect().width > 48;
+                }};
+
+                cfg.findSidebarToggleButton = function() {{
+                    const pickToggle = (root) => Array.from(root.querySelectorAll('button')).find((btn) => {{
+                        if (btn.id === 'borgerliste-sidebar-pin') return false;
+                        const label = (btn.getAttribute('aria-label') || btn.textContent || '').toLowerCase();
+                        return (
+                            label.includes('keyboard_double_arrow_left')
+                            || label.includes('keyboard_double_arrow_right')
+                            || label.includes('collapse')
+                            || label.includes('expand')
+                        );
+                    }}) || null;
+
+                    const collapsed = doc.querySelector('[data-testid="collapsedControl"] button');
+                    if (collapsed) return collapsed;
+
+                    const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+                    if (sidebar) {{
+                        const inSidebar = pickToggle(sidebar);
+                        if (inSidebar) return inSidebar;
+                    }}
+
+                    const header = doc.querySelector('[data-testid="stHeader"]');
+                    if (header) return pickToggle(header);
+                    return null;
+                }};
+
+                cfg.findSidebarButton = function(kind) {{
+                    return Array.from(doc.querySelectorAll('button')).find((btn) => {{
+                        const label = (btn.getAttribute('aria-label') || btn.textContent || '').toLowerCase();
+                        return label.includes(kind);
+                    }}) || null;
+                }};
+
+                cfg.triggerPinToggle = function() {{
+                    const bridge = doc.querySelector('.st-key-borgerliste_pin_bridge button')
+                        || doc.querySelector('[data-testid="stSidebar"] .st-key-borgerliste_pin_bridge button');
+                    if (bridge) {{
+                        bridge.click();
+                        return;
+                    }}
+                    win.setTimeout(() => {{
+                        doc.querySelector('.st-key-borgerliste_pin_bridge button')?.click();
+                    }}, 120);
+                }};
+
+                cfg.syncPinButtonSize = function(toggleBtn, pinBtn) {{
+                    if (!toggleBtn || !pinBtn) return;
+                    const rect = toggleBtn.getBoundingClientRect();
+                    if (rect.width > 0) {{
+                        pinBtn.style.width = `${{rect.width}}px`;
+                        pinBtn.style.height = `${{rect.height}}px`;
+                        pinBtn.style.minWidth = `${{rect.width}}px`;
+                        pinBtn.style.minHeight = `${{rect.height}}px`;
+                    }}
+                    const toggleStyle = win.getComputedStyle(toggleBtn);
+                    pinBtn.style.borderRadius = toggleStyle.borderRadius;
+                }};
+
+                cfg.updatePinButton = function() {{
+                    const oldRow = doc.getElementById('borgerliste-header-pin-row');
+                    if (oldRow?.parentElement) {{
+                        while (oldRow.firstChild) {{
+                            oldRow.parentElement.insertBefore(oldRow.firstChild, oldRow);
+                        }}
+                        oldRow.remove();
+                    }}
+
+                    if (!cfg.showPin) {{
+                        doc.getElementById('borgerliste-sidebar-pin')?.remove();
+                        return;
+                    }}
+
+                    const toggleBtn = cfg.findSidebarToggleButton();
+                    if (!toggleBtn?.parentElement) return;
+
+                    toggleBtn.parentElement.classList.add('borgerliste-pin-host');
+
+                    let pinBtn = doc.getElementById('borgerliste-sidebar-pin');
+                    if (!pinBtn) {{
+                        pinBtn = doc.createElement('button');
+                        pinBtn.id = 'borgerliste-sidebar-pin';
+                        pinBtn.type = 'button';
+                        pinBtn.className = 'borgerliste-header-pin';
+                        pinBtn.addEventListener('click', (event) => {{
+                            event.preventDefault();
+                            event.stopPropagation();
+                            cfg.triggerPinToggle();
+                        }});
+                        toggleBtn.parentElement.insertBefore(pinBtn, toggleBtn);
+                    }} else if (pinBtn.nextElementSibling !== toggleBtn) {{
+                        toggleBtn.parentElement.insertBefore(pinBtn, toggleBtn);
+                    }}
+
+                    pinBtn.innerHTML = cfg.pinIcon;
+                    pinBtn.classList.toggle('is-pinned', cfg.pinned);
+                    pinBtn.setAttribute('aria-label', cfg.pinned ? cfg.unpinLabel : cfg.pinLabel);
+                    pinBtn.setAttribute('title', cfg.pinned ? cfg.unpinLabel : cfg.pinLabel);
+                    cfg.syncPinButtonSize(toggleBtn, pinBtn);
+                }};
+
+                cfg.collapseSidebar = function() {{
+                    if (cfg.pinned || !cfg.isSidebarExpanded()) return;
+                    const btn = cfg.findSidebarButton('keyboard_double_arrow_left') || cfg.findSidebarButton('collapse');
+                    if (btn) btn.click();
+                }};
+
+                cfg.expandSidebar = function() {{
+                    if (!cfg.pinned || cfg.isSidebarExpanded()) return;
+                    const btn = cfg.findSidebarButton('keyboard_double_arrow_right') || cfg.findSidebarButton('expand');
+                    if (btn) btn.click();
+                }};
+
+                cfg.scheduleCollapse = function() {{
+                    if (cfg.pinned) {{
+                        if (cfg.timer) win.clearTimeout(cfg.timer);
+                        cfg.timer = null;
+                        return;
+                    }}
+                    if (cfg.timer) win.clearTimeout(cfg.timer);
+                    if (!cfg.isSidebarExpanded()) return;
+                    cfg.timer = win.setTimeout(() => cfg.collapseSidebar(), cfg.delay);
+                }};
+
+                cfg.bindSidebarOnce = function() {{
+                    const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+                    if (!sidebar || sidebar.dataset.autoCollapseBound === '1') return;
+                    sidebar.dataset.autoCollapseBound = '1';
+                    sidebar.addEventListener('mouseenter', () => {{
+                        if (cfg.timer) win.clearTimeout(cfg.timer);
+                    }});
+                    sidebar.addEventListener('mouseleave', () => cfg.scheduleCollapse());
+                    sidebar.addEventListener('focusin', () => {{
+                        if (cfg.timer) win.clearTimeout(cfg.timer);
+                    }});
+                    sidebar.addEventListener('focusout', () => cfg.scheduleCollapse());
+                }};
+
+                cfg.refresh = function() {{
+                    cfg.updatePinButton();
+                    if (cfg.pinned) {{
+                        cfg.expandSidebar();
+                        if (cfg.timer) win.clearTimeout(cfg.timer);
+                        cfg.timer = null;
+                        return;
+                    }}
+                    cfg.bindSidebarOnce();
+                    cfg.scheduleCollapse();
+                }};
+            }}
+
+            cfg.refresh();
+            win.setTimeout(() => cfg.refresh(), 180);
+        }})();
+        </script>
+        """,
+        height=0,
+    )
 
 
 def render_language_settings() -> None:
@@ -2148,6 +4083,12 @@ def render_theme_settings() -> None:
 def init_session_state() -> None:
     defaults = {
         "authenticated": False,
+        "current_user": None,
+        "auth_token": None,
+        "cookie_synced_for_token": None,
+        "active_page": "borgerliste",
+        "user_data_loaded_for": None,
+        "session_expired_notice": False,
         "list_key": None,
         "source_filename": None,
         "citizens_df": None,
@@ -2162,6 +4103,7 @@ def init_session_state() -> None:
         "theme_choice": "Browser standard",
         "language": "da",
         "preferences_loaded": False,
+        "sidebar_pinned": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -2170,9 +4112,6 @@ def init_session_state() -> None:
     if not st.session_state.preferences_loaded:
         apply_saved_user_preferences()
         st.session_state.preferences_loaded = True
-
-    if st.session_state.citizens_df is None:
-        restore_active_list_if_available()
 
 
 def filter_dataframe(df: pd.DataFrame, filter_key: str, search: str) -> pd.DataFrame:
@@ -2251,6 +4190,32 @@ def render_status_metrics(df: pd.DataFrame) -> None:
             )
 
 
+
+def sync_session_df_with_master() -> bool:
+    """Opdater den aktive liste med seneste master-status fra alle brugere."""
+    if st.session_state.pop("_skip_master_sync_once", False):
+        return False
+
+    df = st.session_state.get("citizens_df")
+    if df is None or df.empty:
+        return False
+
+    sync_master_from_all_user_data()
+    register = load_master_register()
+    updated, _matched = merge_master_register_statuses(df, register)
+
+    status_cols = ["Status", "Status dato", "Ring igen dato"]
+    if all(updated[col].equals(df[col]) for col in status_cols if col in df.columns and col in updated.columns):
+        return False
+
+    st.session_state.citizens_df = updated.reset_index(drop=True)
+    list_key = st.session_state.get("list_key")
+    if list_key:
+        save_state(list_key, dataframe_to_state(st.session_state.citizens_df))
+    save_active_list(st.session_state.citizens_df)
+    return True
+
+
 def handle_file_upload(uploaded) -> bool:
     try:
         raw_df, _detected_encoding = read_uploaded_file(uploaded)
@@ -2262,6 +4227,7 @@ def handle_file_upload(uploaded) -> bool:
         list_state = load_saved_state(key)
         if list_state:
             full_df = apply_saved_statuses(full_df, list_state)
+        full_df, _master_merged = merge_master_register_statuses(full_df, register)
         sync_master_register_from_dataframe(full_df)
 
         st.session_state.list_key = key
@@ -2325,38 +4291,33 @@ def render_upload_section() -> None:
 
 
 def render_sidebar_settings() -> None:
-    st.sidebar.divider()
+    st.sidebar.markdown('<div class="sidebar-divider-spacer"></div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div class="sidebar-settings-panel">', unsafe_allow_html=True)
     st.sidebar.markdown('<div class="lang-mini">', unsafe_allow_html=True)
     render_language_settings()
     st.sidebar.markdown("</div>", unsafe_allow_html=True)
     render_theme_settings()
+    st.sidebar.markdown("</div>", unsafe_allow_html=True)
 
-
-def render_master_register_sidebar() -> None:
-    register = load_master_register()
-    st.sidebar.caption(t("master_register_count", count=len(register)))
-
-    with st.sidebar.expander(t("clear_master_register"), expanded=False):
-        st.caption(t("master_delete_warning"))
-
-        with st.form("master_delete_form", clear_on_submit=True):
-            password = st.text_input(t("master_delete_password"), type="password")
-            submitted = st.form_submit_button(t("master_delete_confirm"), use_container_width=True)
-            if submitted:
-                if verify_master_delete_password(password):
-                    clear_master_register()
-                    st.toast(t("master_register_cleared"), icon="✅")
-                    st.rerun()
-                else:
-                    st.error(t("master_delete_password_error"))
 
 
 def render_sidebar_content() -> None:
+    user = current_user()
+    if user:
+        st.sidebar.markdown(
+            f'<div class="sidebar-user-pill">'
+            f'<span class="sidebar-user-name">{html.escape(user["username"])}</span>'
+            f'<span class="sidebar-user-role">{html.escape(role_label(str(user.get("role", "user"))))}</span>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        if st.sidebar.button(t("logout"), use_container_width=True, key="sidebar_logout"):
+            logout_user()
+            st.rerun()
+        st.sidebar.markdown('<div class="sidebar-divider-spacer"></div>', unsafe_allow_html=True)
+
     with st.sidebar.expander(t("gdpr_title"), expanded=False):
         st.markdown(t("gdpr_text"))
-
-    st.sidebar.divider()
-    render_master_register_sidebar()
 
     list_loaded = st.session_state.citizens_df is not None and not st.session_state.citizens_df.empty
     if not list_loaded:
@@ -2366,11 +4327,11 @@ def render_sidebar_content() -> None:
         st.sidebar.caption(t("session_restored"))
         st.session_state.session_restored = False
 
-    if st.sidebar.button(t("clear_saved_list"), use_container_width=True):
+    if st.sidebar.button(t("clear_saved_list"), use_container_width=True, key="sidebar_clear_list"):
         clear_active_list()
         st.rerun()
 
-    st.sidebar.divider()
+    st.sidebar.markdown('<div class="sidebar-divider-spacer"></div>', unsafe_allow_html=True)
     export_name = Path(st.session_state.source_filename or "borgerliste").stem
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     st.sidebar.download_button(
@@ -2432,6 +4393,55 @@ def render_pagination_bar(total_rows: int, page_size: int, page_number: int) -> 
     return start, end, page_number
 
 
+def handle_citizen_status_change(citizen_id: str) -> None:
+    widget_key = f"status_{citizen_id}"
+    new_status = st.session_state.get(widget_key)
+    if new_status is None:
+        return
+
+    df = st.session_state.get("citizens_df")
+    if df is None or df.empty:
+        return
+
+    mask = df["_id"] == citizen_id
+    if not mask.any():
+        return
+
+    old_status = df.loc[mask, "Status"].iloc[0]
+    if new_status == old_status:
+        return
+
+    updated = update_citizen_status(df, citizen_id, new_status)
+    st.session_state.citizens_df = updated
+    save_state(st.session_state.list_key, dataframe_to_state(updated))
+    updated_row = updated[updated["_id"] == citizen_id].iloc[0]
+    register = load_master_register()
+    upsert_master_register_entry(updated_row, register)
+    save_master_register(register, cleared=False)
+    history = load_status_history()
+    upsert_history_entry(updated_row, history)
+    save_status_history(history)
+    append_audit_log(
+        citizen_id=str(updated_row["_id"]),
+        citizen_name=str(updated_row["Navn"]),
+        citizen_address=str(updated_row["Adresse"]),
+        citizen_phone=str(updated_row["Telefonnummer"]),
+        old_status=str(old_status),
+        new_status=str(new_status),
+        list_key=st.session_state.get("list_key"),
+    )
+    save_active_list(updated)
+    st.session_state._skip_master_sync_once = True
+    st.toast(t("status_saved"), icon="✅")
+
+
+def _citizen_status_change_handler(citizen_id: str):
+    def _handler() -> None:
+        handle_citizen_status_change(citizen_id)
+
+    return _handler
+
+
 def render_citizen_card(row: pd.Series) -> None:
     with st.container(border=True):
         st.markdown(status_pill_html(row["Status"], short=True), unsafe_allow_html=True)
@@ -2440,33 +4450,19 @@ def render_citizen_card(row: pd.Series) -> None:
         st.markdown(citizen_field_html(t("col_phone"), row["Telefonnummer"]), unsafe_allow_html=True)
 
         current_index = STATUSES.index(row["Status"]) if row["Status"] in STATUSES else 0
-        new_status = st.selectbox(
+        st.selectbox(
             t("change_status"),
             STATUSES,
             index=current_index,
             key=f"status_{row['_id']}",
             format_func=lambda s: status_label(s, short=True),
+            on_change=_citizen_status_change_handler(row["_id"]),
         )
 
         if row["Status dato"]:
             st.caption(t("last_updated", date=row["Status dato"]))
         if row["Ring igen dato"]:
             st.caption(t("call_again_date", date=row["Ring igen dato"]))
-
-        if new_status != row["Status"]:
-            updated = update_citizen_status(st.session_state.citizens_df, row["_id"], new_status)
-            st.session_state.citizens_df = updated
-            save_state(st.session_state.list_key, dataframe_to_state(updated))
-            updated_row = updated[updated["_id"] == row["_id"]].iloc[0]
-            register = load_master_register()
-            upsert_master_register_entry(updated_row, register)
-            save_master_register(register, cleared=False)
-            history = load_status_history()
-            upsert_history_entry(updated_row, history)
-            save_status_history(history)
-            save_active_list(updated)
-            st.toast(t("status_saved"), icon="✅")
-            st.rerun()
 
 
 def render_citizen_list(page_slice: pd.DataFrame) -> None:
@@ -2489,18 +4485,36 @@ def main() -> None:
         page_title=t("app_title"),
         page_icon="📋",
         layout="wide",
-        initial_sidebar_state="auto",
+        initial_sidebar_state="collapsed",
     )
     inject_styles(st.session_state.get("theme_choice", "Browser standard"))
 
-    st.sidebar.title(t("menu"))
+    if not st.session_state.get("authenticated"):
+        prepare_cookie_reading()
+        try_restore_auth_from_cookie()
 
     if not render_login():
+        with st.sidebar:
+            st.markdown(f"**{t('app_title')}**")
+            st.caption(t("app_subtitle"))
         render_sidebar_settings()
+        finalize_sidebar_controls(show_pin=False)
         return
 
+    ensure_auth_cookie_synced()
+
+    ensure_user_data_loaded()
+    sync_session_df_with_master()
+
+    render_page_navigation()
     render_sidebar_content()
     render_sidebar_settings()
+
+    if st.session_state.get("active_page") == "account":
+        render_account_page()
+        save_active_session_metadata()
+        finalize_sidebar_controls(show_pin=True)
+        return
 
     df = st.session_state.citizens_df
     if df is None or df.empty:
@@ -2508,6 +4522,7 @@ def main() -> None:
         st.caption(t("app_subtitle"))
         render_upload_section()
         st.info(t("upload_get_started"))
+        finalize_sidebar_controls(show_pin=True)
         return
 
     st.title(t("app_title"))
@@ -2537,6 +4552,7 @@ def main() -> None:
 
     render_citizen_list(filtered_df.iloc[start:end])
     save_active_session_metadata()
+    finalize_sidebar_controls(show_pin=True)
 
 
 if __name__ == "__main__":

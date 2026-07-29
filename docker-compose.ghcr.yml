@@ -1,5 +1,5 @@
 # Kør færdigbygget image fra GitHub Container Registry (GHCR).
-# Opret .env ud fra .env.example og sæt GHCR_IMAGE til dit repo.
+# Opret .env ud fra .env.example og sæt admin-adgangskode.
 
 services:
   borgerliste:
@@ -9,7 +9,10 @@ services:
       - "8501:8501"
     environment:
       BORGERLISTE_DATA_DIR: /data
-      BORGERLISTE_MASTER_DELETE_PASSWORD: ${BORGERLISTE_MASTER_DELETE_PASSWORD:-Linkin24}
+      BORGERLISTE_ADMIN_USERNAME: ${BORGERLISTE_ADMIN_USERNAME:?Set BORGERLISTE_ADMIN_USERNAME in .env}
+      BORGERLISTE_ADMIN_PASSWORD: ${BORGERLISTE_ADMIN_PASSWORD:?Set BORGERLISTE_ADMIN_PASSWORD in .env}
+      BORGERLISTE_SESSION_IDLE_HOURS: ${BORGERLISTE_SESSION_IDLE_HOURS:-24}
+      BORGERLISTE_SESSION_MAX_DAYS: ${BORGERLISTE_SESSION_MAX_DAYS:-30}
     volumes:
       - borgerliste_data:/data
     restart: unless-stopped

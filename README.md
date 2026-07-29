@@ -1,6 +1,8 @@
 # Borgerliste
 
-Streamlit-app til kontakt og opfølgning på borgere. Understøtter upload af Excel/CSV, statussporing, master-register med 2/3-matching, eksport og Docker-deploy.
+**Version 1.1.0** — se [CHANGELOG.md](CHANGELOG.md) for opgraderingsvejledning fra v1.0.x.
+
+Streamlit-app til kontakt og opfølgning på borgere. Understøtter upload af Excel/CSV, statussporing, master-register med 2/3-matching, multi-bruger login, eksport og Docker-deploy.
 
 ## Funktioner
 
@@ -66,7 +68,7 @@ Alternativt: behold pakken privat og brug GitHub Personal Access Token med `read
 | Port | Host `8501` → Container `8501` |
 | Path | Host `/mnt/user/appdata/borgerliste-data` → Container `/data` |
 | Variable | `BORGERLISTE_DATA_DIR` = `/data` |
-| Variable | `BORGERLISTE_MASTER_DELETE_PASSWORD` = din adgangskode |
+| Variable | `BORGERLISTE_ADMIN_PASSWORD` = stærk admin-adgangskode |
 
 3. **Apply** og start containeren
 4. Åbn `http://<unraid-ip>:8501`
@@ -91,8 +93,11 @@ docker compose -f docker-compose.ghcr.yml up -d
 
 ### Opdatér til ny version
 
+Se [CHANGELOG.md](CHANGELOG.md) for ændringer mellem versioner.
+
 ```bash
-docker pull ghcr.io/stefan240987/borgerliste-app:latest
+docker pull ghcr.io/stefan240987/borgerliste-app:1.1.0
+# eller :latest
 docker stop borgerliste-app
 docker rm borgerliste-app
 # Start igen via Unraid UI, eller:
@@ -113,8 +118,13 @@ Se også [SERVER_DEPLOYMENT.md](SERVER_DEPLOYMENT.md).
 
 - Borgerdata gemmes i `/data` i containeren (Docker-volume)
 - Commit **aldrig** `data/`, `.env` eller `.streamlit/secrets.toml`
-- Master-sletning kræver `BORGERLISTE_MASTER_DELETE_PASSWORD` (standard: `Linkin24` — skift i produktion)
-- Brug HTTPS via reverse proxy (Nginx Proxy Manager, Swag) på netværk/server
+- Sæt **stærk admin-adgangskode** i `.env` før produktion (`BORGERLISTE_ADMIN_PASSWORD`)
+- Kun administratorer kan slette master-registeret (kræver admin-adgangskode)
+- Adgangskoder skal være mindst 12 tegn; login er rate-limited efter gentagne fejl
+- Session cookie holder dig logget ind ved browser-genindlæsning (standard: 24 timers inaktivitet, max 30 dage)
+- Konfigurer med `BORGERLISTE_SESSION_IDLE_HOURS` og `BORGERLISTE_SESSION_MAX_DAYS` i `.env`
+- Ved første lokal kørsel uden konfigureret admin-password oprettes en midlertidig adgangskode i `data/.admin_bootstrap.txt` — skift den og slet filen
+- Brug HTTPS via reverse proxy (Nginx Proxy Manager, Swag) på netværk/server; eksponér ikke port 8501 direkte mod internettet
 
 ## Backup
 

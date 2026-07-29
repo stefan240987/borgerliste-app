@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 DATA_DIR = Path(os.environ.get("BORGERLISTE_DATA_DIR", Path(__file__).resolve().parent / "data"))
 ACTIVE_LIST_PARQUET = DATA_DIR / "active_borgerliste.parquet"
@@ -1318,10 +1319,6 @@ def _overview_filter_button_selector(suffix: str = "") -> str:
     return _btn_any_selector(f"{_overview_columns_selector()}{suffix}")
 
 
-def _css_scope_prefix(scope: str) -> str:
-    return f"{scope} " if scope else ""
-
-
 def _kpi_filter_active_color_rules(theme_prefix: str) -> str:
     rules: list[str] = []
     for index, (_filter_key, color) in enumerate(FILTER_ACTIVE_COLORS.items(), start=1):
@@ -1345,19 +1342,15 @@ def _kpi_filter_active_color_rules(theme_prefix: str) -> str:
     return "\n".join(rules)
 
 
-def _light_theme_overrides_css(scope: str = "") -> str:
-    sp = _css_scope_prefix(scope)
+def _light_theme_overrides_css() -> str:
     col_sel = _overview_columns_selector()
     overview_buttons = _overview_filter_button_selector()
-    overview_secondary = _btn_secondary_selector(f"{sp}{col_sel}".strip())
-    active_rules = _kpi_filter_active_color_rules(scope)
-    color_scheme_rule = (
-        f"{scope} {{ color-scheme: light !important; }}"
-        if scope
-        else ":root { color-scheme: light !important; }"
-    )
+    overview_secondary = _btn_secondary_selector(f".light-theme {col_sel}")
+    active_rules = _kpi_filter_active_color_rules(".light-theme")
     return f"""
-{color_scheme_rule}
+.light-theme {{
+    color-scheme: light !important;
+}}
 
 {overview_secondary} {{
     background-color: #FFFFFF !important;
@@ -1366,7 +1359,7 @@ def _light_theme_overrides_css(scope: str = "") -> str:
     -webkit-text-fill-color: #1F2937 !important;
 }}
 
-{sp}{overview_buttons} {{
+.light-theme {overview_buttons} {{
     height: 42px !important;
     min-height: 42px !important;
     max-height: 42px !important;
@@ -1382,8 +1375,8 @@ def _light_theme_overrides_css(scope: str = "") -> str:
     box-shadow: none !important;
 }}
 
-{sp}div[data-testid="stTextInput"] input,
-{sp}div[data-baseweb="input"] input {{
+.light-theme div[data-testid="stTextInput"] input,
+.light-theme div[data-baseweb="input"] input {{
     background-color: #FFFFFF !important;
     color: #111827 !important;
     -webkit-text-fill-color: #111827 !important;
@@ -1391,8 +1384,8 @@ def _light_theme_overrides_css(scope: str = "") -> str:
     caret-color: #111827 !important;
 }}
 
-{sp}div[data-testid="stTextInput"] input::placeholder,
-{sp}div[data-baseweb="input"] input::placeholder {{
+.light-theme div[data-testid="stTextInput"] input::placeholder,
+.light-theme div[data-baseweb="input"] input::placeholder {{
     color: #6B7280 !important;
     -webkit-text-fill-color: #6B7280 !important;
     opacity: 1 !important;
@@ -1406,14 +1399,17 @@ def _light_theme_tooltip_css() -> str:
     return """
 div[data-baseweb="tooltip"] > div,
 div[data-baseweb="popover"]:has([data-testid="stTooltipContent"]) > div,
-div[data-baseweb="popover"]:has(.stTooltipContent) > div {
+div[data-baseweb="popover"]:has(.stTooltipContent) > div,
+div[role="tooltip"],
+div[role="tooltip"] > div {
     background-color: #FFFFFF !important;
     color: #111827 !important;
     border: 1px solid #D1D5DB !important;
     box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12) !important;
 }
 
-div[data-baseweb="tooltip"] {
+div[data-baseweb="tooltip"],
+div[role="tooltip"] {
     color: #111827 !important;
 }
 
@@ -1421,26 +1417,23 @@ div[data-baseweb="tooltip"] {
 .stTooltipContent,
 [data-testid="stTooltipContent"] *,
 .stTooltipContent *,
-div[data-baseweb="tooltip"] * {
+div[data-baseweb="tooltip"] *,
+div[role="tooltip"] * {
     color: #111827 !important;
     -webkit-text-fill-color: #111827 !important;
 }
 """
 
 
-def _dark_theme_overrides_css(scope: str = "") -> str:
-    sp = _css_scope_prefix(scope)
+def _dark_theme_overrides_css() -> str:
     col_sel = _overview_columns_selector()
     overview_buttons = _overview_filter_button_selector()
-    overview_secondary = _btn_secondary_selector(f"{sp}{col_sel}".strip())
-    active_rules = _kpi_filter_active_color_rules(scope)
-    color_scheme_rule = (
-        f"{scope} {{ color-scheme: dark !important; }}"
-        if scope
-        else ":root { color-scheme: dark !important; }"
-    )
+    overview_secondary = _btn_secondary_selector(f".dark-theme {col_sel}")
+    active_rules = _kpi_filter_active_color_rules(".dark-theme")
     return f"""
-{color_scheme_rule}
+.dark-theme {{
+    color-scheme: dark !important;
+}}
 
 {overview_secondary} {{
     background-color: #1E293B !important;
@@ -1449,7 +1442,7 @@ def _dark_theme_overrides_css(scope: str = "") -> str:
     -webkit-text-fill-color: #F8FAFC !important;
 }}
 
-{sp}{overview_buttons} {{
+.dark-theme {overview_buttons} {{
     height: 42px !important;
     min-height: 42px !important;
     max-height: 42px !important;
@@ -1467,6 +1460,58 @@ def _dark_theme_overrides_css(scope: str = "") -> str:
 
 {active_rules}
 """
+
+
+def _theme_dom_script(body: str) -> str:
+    return f"""
+(function () {{
+  const doc = window.parent.document;
+  const apply = () => {{
+    const root = doc.querySelector(".stApp") || doc.body;
+    if (!root) return false;
+    {body}
+    return true;
+  }};
+  if (apply()) return;
+  const observer = new MutationObserver(() => {{
+    if (apply()) observer.disconnect();
+  }});
+  observer.observe(doc.documentElement, {{ childList: true, subtree: true }});
+  window.setTimeout(() => observer.disconnect(), 15000);
+}})();
+"""
+
+
+def _theme_class_bootstrap(theme_choice: str) -> str:
+    if theme_choice == "Lyst tema":
+        return _theme_dom_script("""
+    root.classList.remove("dark-theme");
+    root.classList.add("light-theme");
+""")
+    if theme_choice == "Mørkt tema":
+        return _theme_dom_script("""
+    root.classList.remove("light-theme");
+    root.classList.add("dark-theme");
+""")
+    return _theme_dom_script("""
+    const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    root.classList.remove("light-theme", "dark-theme");
+    root.classList.add(dark ? "dark-theme" : "light-theme");
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    if (!window.__borgerlisteThemeListener) {
+      media.addEventListener("change", () => {
+        const isDark = media.matches;
+        root.classList.remove("light-theme", "dark-theme");
+        root.classList.add(isDark ? "dark-theme" : "light-theme");
+      });
+      window.__borgerlisteThemeListener = true;
+    }
+""")
+
+
+def _inject_theme_class(theme_choice: str) -> None:
+    script = _theme_class_bootstrap(theme_choice)
+    components.html(f"<script>{script}</script>", height=0, width=0)
 
 
 def _dropdown_css(scheme: str) -> str:
@@ -1944,9 +1989,9 @@ def inject_styles(theme_choice: str) -> None:
     if theme_choice == "Browser standard":
         light = THEME_PALETTES["Lyst tema"]
         dark = THEME_PALETTES["Mørkt tema"]
-        css_parts.append(_themed_css_rules(light, light["input_bg"], media="(prefers-color-scheme: light)"))
+        css_parts.append(_themed_css_rules(light, light["input_bg"], media=None))
         css_parts.append(_themed_css_rules(dark, dark["input_bg"], media="(prefers-color-scheme: dark)"))
-        css_parts.append(_wrap_media(_light_theme_overrides_css(), "(prefers-color-scheme: light)"))
+        css_parts.append(_light_theme_overrides_css())
         css_parts.append(_wrap_media(_light_theme_tooltip_css(), "(prefers-color-scheme: light)"))
         css_parts.append(_wrap_media(_dark_theme_overrides_css(), "(prefers-color-scheme: dark)"))
     elif theme_choice in THEME_PALETTES:
@@ -1962,6 +2007,7 @@ def inject_styles(theme_choice: str) -> None:
 
     css = "<style>\n" + "\n".join(css_parts) + "\n</style>"
     st.markdown(css, unsafe_allow_html=True)
+    _inject_theme_class(theme_choice)
 
 
 def render_language_settings() -> None:

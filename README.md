@@ -36,7 +36,7 @@ ghcr.io/<dit-brugernavn>/borgerliste-app:latest
 cd borgerliste-app
 git add .
 git commit -m "Initial commit"
-git remote add origin https://github.com/stefanrosendahl/borgerliste-app.git
+git remote add origin https://github.com/stefan240987/borgerliste-app.git
 git push -u origin main
 ```
 
@@ -61,7 +61,7 @@ Alternativt: behold pakken privat og brug GitHub Personal Access Token med `read
 | Felt | Værdi |
 |------|--------|
 | Name | `borgerliste-app` |
-| Repository | `ghcr.io/stefanrosendahl/borgerliste-app:latest` |
+| Repository | `ghcr.io/stefan240987/borgerliste-app:latest` |
 | Network Type | `bridge` |
 | Port | Host `8501` → Container `8501` |
 | Path | Host `/mnt/user/appdata/borgerliste-data` → Container `/data` |
@@ -80,7 +80,7 @@ mkdir -p /mnt/user/appdata/borgerliste-app
 cd /mnt/user/appdata/borgerliste-app
 
 # Hent kun compose-filer (eller git clone hele repoet)
-git clone https://github.com/stefanrosendahl/borgerliste-app.git .
+git clone https://github.com/stefan240987/borgerliste-app.git .
 cp .env.example .env
 # Redigér .env — sæt GHCR_IMAGE til dit image
 nano .env
@@ -92,7 +92,7 @@ docker compose -f docker-compose.ghcr.yml up -d
 ### Opdatér til ny version
 
 ```bash
-docker pull ghcr.io/stefanrosendahl/borgerliste-app:latest
+docker pull ghcr.io/stefan240987/borgerliste-app:latest
 docker stop borgerliste-app
 docker rm borgerliste-app
 # Start igen via Unraid UI, eller:

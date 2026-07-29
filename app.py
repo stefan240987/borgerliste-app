@@ -61,7 +61,7 @@ COOKIE_MANAGER_INSTANCE_KEY = "_borgerliste_cookie_manager_instance"
 DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 SIDEBAR_AUTO_COLLAPSE_SECONDS = 10
 PASSWORD_HASH_ITERATIONS = 120_000
 
@@ -698,7 +698,15 @@ JsonT = TypeVar("JsonT")
 @contextmanager
 def _data_file_lock(*, shared: bool = False):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with DATA_LOCK_PATH.open("a+", encoding="utf-8") as lock_handle:
+    try:
+        lock_handle = DATA_LOCK_PATH.open("a+", encoding="utf-8")
+    except PermissionError as exc:
+        raise PermissionError(
+            f"Ingen skriveadgang til datalageret ({DATA_DIR}). "
+            "Genstart containeren med det nyeste image, eller kør: "
+            f"chown -R 1000:1000 <din-data-mappe>"
+        ) from exc
+    with lock_handle:
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
         try:
             yield
@@ -3045,6 +3053,76 @@ def _dark_theme_field_css(scope: str = "") -> str:
 """
 
 
+def _toast_shell_css(
+    scope: str,
+    *,
+    bg: str,
+    text: str,
+    border: str,
+    shadow: str,
+    button: str,
+) -> str:
+    sp = f"{scope} " if scope else ""
+    return f"""
+{sp}[data-testid="stToast"],
+{sp}.stToast {{
+    background-color: {bg} !important;
+    color: {text} !important;
+    border: 1px solid {border} !important;
+    box-shadow: {shadow} !important;
+    border-radius: 0.65rem !important;
+    overflow: hidden !important;
+}}
+
+{sp}[data-testid="stToast"] > div,
+{sp}[data-testid="stToast"] div,
+{sp}.stToast > div,
+{sp}.stToast div {{
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}}
+
+{sp}[data-testid="stToast"] *,
+{sp}.stToast * {{
+    color: {text} !important;
+    -webkit-text-fill-color: {text} !important;
+}}
+
+{sp}[data-testid="stToast"] button,
+{sp}.stToast button {{
+    color: {button} !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}}
+"""
+
+
+def _light_theme_toast_css(scope: str = "") -> str:
+    return _toast_shell_css(
+        scope,
+        bg="#FFFFFF",
+        text="#1C1917",
+        border="#E7E5E4",
+        shadow="0 10px 28px rgba(15, 23, 42, 0.12)",
+        button="#64748B",
+    )
+
+
+def _dark_theme_toast_css(scope: str = "") -> str:
+    return _toast_shell_css(
+        scope,
+        bg="#1E293B",
+        text="#F8FAFC",
+        border="#334155",
+        shadow="0 10px 28px rgba(0, 0, 0, 0.42)",
+        button="#94A3B8",
+    )
+
+
 def _dark_theme_tooltip_css(scope: str = "") -> str:
     sp = f"{scope} " if scope else ""
     return f"""
@@ -3828,6 +3906,32 @@ section[data-testid="stFileUploaderDropzone"] {{
     border-color: var(--app-border) !important;
 }}
 
+[data-testid="stToast"],
+.stToast {{
+    background-color: var(--app-card-bg) !important;
+    color: var(--app-text) !important;
+    border: 1px solid var(--app-border) !important;
+    border-radius: 0.65rem !important;
+    overflow: hidden !important;
+}}
+
+[data-testid="stToast"] > div,
+[data-testid="stToast"] div,
+.stToast > div,
+.stToast div {{
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}}
+
+[data-testid="stToast"] *,
+.stToast * {{
+    color: var(--app-text) !important;
+    -webkit-text-fill-color: var(--app-text) !important;
+}}
+
 div[data-baseweb="select"] svg {{
     fill: var(--app-text) !important;
 }}
@@ -3861,9 +3965,11 @@ def inject_styles(theme_choice: str) -> None:
         css_parts.append(_wrap_media(_light_theme_overrides_css(), "(prefers-color-scheme: light)"))
         css_parts.append(_wrap_media(_light_theme_field_css("html:has(.stApp.light-theme)"), "(prefers-color-scheme: light)"))
         css_parts.append(_wrap_media(_light_theme_tooltip_css("html:has(.stApp.light-theme)"), "(prefers-color-scheme: light)"))
+        css_parts.append(_wrap_media(_light_theme_toast_css("html:has(.stApp.light-theme)"), "(prefers-color-scheme: light)"))
         css_parts.append(_wrap_media(_dark_theme_overrides_css(), "(prefers-color-scheme: dark)"))
         css_parts.append(_wrap_media(_dark_theme_field_css("html:has(.stApp.dark-theme)"), "(prefers-color-scheme: dark)"))
         css_parts.append(_wrap_media(_dark_theme_tooltip_css("html:has(.stApp.dark-theme)"), "(prefers-color-scheme: dark)"))
+        css_parts.append(_wrap_media(_dark_theme_toast_css("html:has(.stApp.dark-theme)"), "(prefers-color-scheme: dark)"))
     elif theme_choice in THEME_PALETTES:
         palette = THEME_PALETTES[theme_choice]
         is_light = theme_choice == "Lyst tema"
@@ -3873,10 +3979,13 @@ def inject_styles(theme_choice: str) -> None:
             css_parts.append(_light_theme_overrides_css())
             css_parts.append(_light_theme_field_css())
             css_parts.append(_light_theme_tooltip_css())
+            css_parts.append(_light_theme_toast_css())
         else:
             css_parts.append(_dark_theme_overrides_css())
             css_parts.append(_dark_theme_field_css())
             css_parts.append(_dark_theme_tooltip_css())
+            css_parts.append(_dark_theme_toast_css())
+            css_parts.append(_dark_theme_toast_css(".dark-theme"))
 
     css = "<style>\n" + "\n".join(css_parts) + "\n</style>"
     st.markdown(css, unsafe_allow_html=True)

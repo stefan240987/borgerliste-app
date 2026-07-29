@@ -4,6 +4,22 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.1.2] — 2026-07-29 (Docker hotfix + toast UI)
+
+### Rettet
+
+- **Docker PermissionError på `/data/.data.lock`** — entrypoint kører som root, `chown` på `/data`-volume, derefter `gosu appuser` (fixer opgradering fra root-baserede images).
+- **Toast "Status gemt"** — mørkt tema + fjernelse af dobbelt-kasse omkring toast-indhold.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.1.2
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.1.1] — 2026-07-29 (stabilitet / sikkerhed / performance)
 
 Sammenlignet med **v1.1.0**.
@@ -23,7 +39,7 @@ ghcr.io/stefan240987/borgerliste-app:latest
 - **Excel upload-grænse** — samme 25 MB grænse som CSV (læser bytes før parsing).
 - **Secure session cookie** — `BORGERLISTE_COOKIE_SECURE=true` i produktion bag HTTPS.
 - **Proxy-aware rate limit** — `X-Forwarded-For` bruges kun når `BORGERLISTE_TRUST_PROXY=true`.
-- **Non-root Docker** — container kører som `appuser` (uid 1000).
+- **Non-root Docker** — container kører som `appuser` (uid 1000); entrypoint retter `/data`-volume rettigheder ved opstart.
 
 ### Ændret
 

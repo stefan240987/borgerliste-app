@@ -1,6 +1,6 @@
 # Borgerliste
 
-**Version 1.1.1** — se [CHANGELOG.md](CHANGELOG.md) for opgraderingsvejledning.
+**Version 1.1.2** — se [CHANGELOG.md](CHANGELOG.md) for opgraderingsvejledning.
 
 Streamlit-app til kontakt og opfølgning på borgere. Understøtter upload af Excel/CSV, statussporing, master-register med 2/3-matching, multi-bruger login, eksport og Docker-deploy.
 

@@ -15,7 +15,11 @@ COPY app.py setup_and_run.py ./
 COPY assets/ assets/
 COPY .streamlit/ .streamlit/
 
-RUN mkdir -p /data
+RUN useradd --create-home --uid 1000 --shell /usr/sbin/nologin appuser \
+    && mkdir -p /data \
+    && chown -R appuser:appuser /app /data
+
+USER appuser
 
 EXPOSE 8501
 

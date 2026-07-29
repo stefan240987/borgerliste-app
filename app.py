@@ -6,6 +6,7 @@ Understøtter lokal kørsel og Docker-server med valgfri adgangskode.
 from __future__ import annotations
 
 import base64
+import fcntl
 import hashlib
 import html
 import json
@@ -13,9 +14,13 @@ import os
 import re
 import secrets
 import shutil
+import tempfile
+import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from typing import TypeVar
 
 import extra_streamlit_components as stx
 import pandas as pd
@@ -53,6 +58,10 @@ MIN_SESSION_IDLE_HOURS = 1
 MAX_SESSION_IDLE_HOURS = 168
 COOKIE_MANAGER_KEY = "borgerliste_cookie_manager"
 COOKIE_MANAGER_INSTANCE_KEY = "_borgerliste_cookie_manager_instance"
+DATA_LOCK_PATH = DATA_DIR / ".data.lock"
+MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
+MASTER_SYNC_INTERVAL_SECONDS = 60
+APP_VERSION = "1.1.1"
 SIDEBAR_AUTO_COLLAPSE_SECONDS = 10
 PASSWORD_HASH_ITERATIONS = 120_000
 
@@ -671,9 +680,98 @@ def read_uploaded_file(uploaded_file) -> tuple[pd.DataFrame, str]:
         df, encoding = read_csv_bytes(raw)
         return df, encoding
     if name.endswith((".xlsx", ".xls")):
-        df = pd.read_excel(uploaded_file)
+        raw = uploaded_file.read(MAX_UPLOAD_BYTES + 1)
+        if len(raw) > MAX_UPLOAD_BYTES:
+            raise ValueError(t("upload_too_large", max_mb=MAX_UPLOAD_BYTES // (1024 * 1024)))
+        df = pd.read_excel(BytesIO(raw))
         return repair_dataframe_text(df), "excel"
     raise ValueError(t("upload_error"))
+
+
+# ---------------------------------------------------------------------------
+# Atomic JSON persistence (file lock + replace)
+# ---------------------------------------------------------------------------
+
+JsonT = TypeVar("JsonT")
+
+
+@contextmanager
+def _data_file_lock(*, shared: bool = False):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with DATA_LOCK_PATH.open("a+", encoding="utf-8") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
+def _write_text_atomic(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _load_json_file(path: Path, default: JsonT) -> JsonT:
+    if not path.exists():
+        return default
+    with _data_file_lock(shared=True):
+        try:
+            with path.open(encoding="utf-8") as handle:
+                return json.load(handle)
+        except (json.JSONDecodeError, OSError):
+            return default
+
+
+def _save_json_file(path: Path, payload: object) -> None:
+    content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    with _data_file_lock(shared=False):
+        _write_text_atomic(path, content)
+
+
+def _master_sync_is_stale() -> bool:
+    try:
+        if not MASTER_SYNC_STAMP_PATH.exists():
+            return True
+        last = float(MASTER_SYNC_STAMP_PATH.read_text(encoding="utf-8").strip())
+        return (time.time() - last) >= MASTER_SYNC_INTERVAL_SECONDS
+    except (ValueError, OSError):
+        return True
+
+
+def _touch_master_sync_stamp() -> None:
+    _write_text_atomic(MASTER_SYNC_STAMP_PATH, f"{time.time()}\n")
+
+
+def maybe_sync_master_from_all_user_data(*, force: bool = False) -> bool:
+    """Synk master-register fra alle brugere — throttlet medmindre force=True."""
+    if is_master_register_cleared():
+        return False
+    if not force and not _master_sync_is_stale():
+        return False
+    sync_master_from_all_user_data()
+    _touch_master_sync_stamp()
+    return True
+
+
+def _cookie_secure_flag() -> bool | None:
+    raw = os.environ.get("BORGERLISTE_COOKIE_SECURE", "").strip().lower()
+    if raw in ("1", "true", "yes"):
+        return True
+    if raw in ("0", "false", "no"):
+        return False
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -809,14 +907,21 @@ def _parse_master_register_payload(data: object) -> dict[str, object]:
     return {"cleared": False, "entries": []}
 
 
+def _read_json_raw(path: Path, default: JsonT) -> JsonT:
+    if not path.exists():
+        return default
+    try:
+        with path.open(encoding="utf-8") as handle:
+            return json.load(handle)
+    except (json.JSONDecodeError, OSError):
+        return default
+
+
 def load_master_register_state() -> dict[str, object]:
     if MASTER_REFERENCE_REGISTER_PATH.exists():
-        try:
-            with MASTER_REFERENCE_REGISTER_PATH.open(encoding="utf-8") as handle:
-                data = json.load(handle)
+        data = _load_json_file(MASTER_REFERENCE_REGISTER_PATH, None)
+        if data is not None:
             return _parse_master_register_payload(data)
-        except (json.JSONDecodeError, OSError):
-            pass
 
     migrated = _migrate_status_history_to_master_register()
     if migrated:
@@ -893,10 +998,7 @@ def is_master_register_cleared() -> bool:
 
 
 def save_master_register(register: list[dict], *, cleared: bool = False) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {"cleared": cleared, "entries": register}
-    with MASTER_REFERENCE_REGISTER_PATH.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    _save_json_file(MASTER_REFERENCE_REGISTER_PATH, {"cleared": cleared, "entries": register})
 
 
 def clear_master_register() -> None:
@@ -1121,20 +1223,12 @@ def history_keys_for_row(row: pd.Series) -> list[str]:
 
 
 def load_status_history() -> dict[str, dict]:
-    if not STATUS_HISTORY_PATH.exists():
-        return {}
-    try:
-        with STATUS_HISTORY_PATH.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
-        return {}
+    data = _load_json_file(STATUS_HISTORY_PATH, {})
+    return data if isinstance(data, dict) else {}
 
 
 def save_status_history(history: dict[str, dict]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with STATUS_HISTORY_PATH.open("w", encoding="utf-8") as handle:
-        json.dump(history, handle, ensure_ascii=False, indent=2)
+    _save_json_file(STATUS_HISTORY_PATH, history)
 
 
 def history_entry_from_row(row: pd.Series) -> dict[str, str]:
@@ -1234,35 +1328,22 @@ def storage_path(key: str, username: str | None = None) -> Path:
 def load_saved_state(key: str, username: str | None = None) -> dict[str, dict]:
     key = _safe_storage_key(key)
     path = storage_path(key, username)
-    if not path.exists():
-        return {}
-    try:
-        with path.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
-        return {}
+    data = _load_json_file(path, {})
+    return data if isinstance(data, dict) else {}
 
 
 def save_state(key: str, state: dict[str, dict], username: str | None = None) -> None:
     key = _safe_storage_key(key)
     path = storage_path(key, username)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(state, handle, ensure_ascii=False, indent=2)
+    _save_json_file(path, state)
 
 
 def load_user_preferences(username: str | None = None) -> dict:
     path = user_preferences_path(username)
     if not path.exists() and USER_PREFERENCES_PATH.exists():
         path = USER_PREFERENCES_PATH
-    if not path.exists():
-        return {}
-    try:
-        with path.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
-        return {}
+    data = _load_json_file(path, {})
+    return data if isinstance(data, dict) else {}
 
 
 def save_user_preferences(**updates: object) -> None:
@@ -1270,10 +1351,7 @@ def save_user_preferences(**updates: object) -> None:
         return
     prefs = load_user_preferences()
     prefs.update(updates)
-    path = user_preferences_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(prefs, handle, ensure_ascii=False, indent=2)
+    _save_json_file(user_preferences_path(), prefs)
 
 
 def apply_saved_user_preferences() -> None:
@@ -1348,10 +1426,7 @@ def save_active_session_metadata() -> None:
         "show_uploader": st.session_state.get("show_uploader", False),
         "saved_at": datetime.now().isoformat(timespec="seconds"),
     }
-    session_path = user_active_session_path()
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    with session_path.open("w", encoding="utf-8") as handle:
-        json.dump(meta, handle, ensure_ascii=False, indent=2)
+    _save_json_file(user_active_session_path(), meta)
 
 
 def save_active_list(df: pd.DataFrame) -> None:
@@ -1401,15 +1476,8 @@ def _read_active_list_file(username: str | None = None) -> pd.DataFrame | None:
 
 
 def _load_active_session_metadata(username: str | None = None) -> dict:
-    session_path = user_active_session_path(username)
-    if not session_path.exists():
-        return {}
-    try:
-        with session_path.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
-        return {}
+    data = _load_json_file(user_active_session_path(username), {})
+    return data if isinstance(data, dict) else {}
 
 
 def restore_active_list_if_available() -> bool:
@@ -1444,7 +1512,7 @@ def restore_active_list_if_available() -> bool:
         list_state = load_saved_state(str(list_key))
         if list_state:
             df = apply_saved_statuses(df, list_state)
-    sync_master_from_all_user_data()
+    maybe_sync_master_from_all_user_data(force=True)
     register = load_master_register()
     df, _matched = merge_master_register_statuses(df, register)
 
@@ -1645,24 +1713,18 @@ def _chmod_sensitive(path: Path) -> None:
 
 
 def load_users() -> list[dict]:
-    if not USERS_PATH.exists():
+    data = _load_json_file(USERS_PATH, None)
+    if data is None:
         return []
-    try:
-        with USERS_PATH.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-        if isinstance(data, dict) and isinstance(data.get("users"), list):
-            return [entry for entry in data["users"] if isinstance(entry, dict)]
-        if isinstance(data, list):
-            return [entry for entry in data if isinstance(entry, dict)]
-    except (json.JSONDecodeError, OSError):
-        pass
+    if isinstance(data, dict) and isinstance(data.get("users"), list):
+        return [entry for entry in data["users"] if isinstance(entry, dict)]
+    if isinstance(data, list):
+        return [entry for entry in data if isinstance(entry, dict)]
     return []
 
 
 def save_users(users: list[dict]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with USERS_PATH.open("w", encoding="utf-8") as handle:
-        json.dump({"users": users}, handle, ensure_ascii=False, indent=2)
+    _save_json_file(USERS_PATH, {"users": users})
     _chmod_sensitive(USERS_PATH)
 
 
@@ -1877,6 +1939,9 @@ def refresh_session_user() -> bool:
 
 
 def _client_ip() -> str:
+    trust_proxy = os.environ.get("BORGERLISTE_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes")
+    if not trust_proxy:
+        return "local"
     try:
         headers = st.context.headers
         if headers:
@@ -1892,20 +1957,12 @@ def _client_ip() -> str:
 
 
 def _load_login_attempts() -> dict[str, dict]:
-    if not LOGIN_ATTEMPTS_PATH.exists():
-        return {}
-    try:
-        with LOGIN_ATTEMPTS_PATH.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
-        return {}
+    data = _load_json_file(LOGIN_ATTEMPTS_PATH, {})
+    return data if isinstance(data, dict) else {}
 
 
 def _save_login_attempts(data: dict[str, dict]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with LOGIN_ATTEMPTS_PATH.open("w", encoding="utf-8") as handle:
-        json.dump(data, handle, ensure_ascii=False, indent=2)
+    _save_json_file(LOGIN_ATTEMPTS_PATH, data)
     _chmod_sensitive(LOGIN_ATTEMPTS_PATH)
 
 
@@ -1945,25 +2002,19 @@ def clear_login_attempts() -> None:
 
 
 def load_audit_log() -> list[dict]:
-    if not AUDIT_LOG_PATH.exists():
+    data = _load_json_file(AUDIT_LOG_PATH, None)
+    if data is None:
         return []
-    try:
-        with AUDIT_LOG_PATH.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-        if isinstance(data, dict) and isinstance(data.get("entries"), list):
-            return [entry for entry in data["entries"] if isinstance(entry, dict)]
-        if isinstance(data, list):
-            return [entry for entry in data if isinstance(entry, dict)]
-    except (json.JSONDecodeError, OSError):
-        pass
+    if isinstance(data, dict) and isinstance(data.get("entries"), list):
+        return [entry for entry in data["entries"] if isinstance(entry, dict)]
+    if isinstance(data, list):
+        return [entry for entry in data if isinstance(entry, dict)]
     return []
 
 
 def save_audit_log(entries: list[dict]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
     trimmed = entries[-MAX_AUDIT_ENTRIES:]
-    with AUDIT_LOG_PATH.open("w", encoding="utf-8") as handle:
-        json.dump({"entries": trimmed}, handle, ensure_ascii=False, indent=2)
+    _save_json_file(AUDIT_LOG_PATH, {"entries": trimmed})
 
 
 def append_audit_log(
@@ -2019,22 +2070,14 @@ def get_cookie_manager() -> stx.CookieManager:
 
 
 def load_app_settings() -> dict:
-    if not APP_SETTINGS_PATH.exists():
-        return {}
-    try:
-        with APP_SETTINGS_PATH.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
-        return {}
+    data = _load_json_file(APP_SETTINGS_PATH, {})
+    return data if isinstance(data, dict) else {}
 
 
 def save_app_settings(**updates: object) -> None:
     settings = load_app_settings()
     settings.update(updates)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with APP_SETTINGS_PATH.open("w", encoding="utf-8") as handle:
-        json.dump(settings, handle, ensure_ascii=False, indent=2)
+    _save_json_file(APP_SETTINGS_PATH, settings)
     _chmod_sensitive(APP_SETTINGS_PATH)
 
 
@@ -2068,22 +2111,17 @@ def session_max_age_seconds() -> int:
 
 
 def _load_auth_sessions() -> dict[str, dict]:
-    if not AUTH_SESSIONS_PATH.exists():
+    data = _load_json_file(AUTH_SESSIONS_PATH, None)
+    if not isinstance(data, dict):
         return {}
-    try:
-        with AUTH_SESSIONS_PATH.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-        if isinstance(data, dict) and isinstance(data.get("sessions"), dict):
-            return {key: value for key, value in data["sessions"].items() if isinstance(value, dict)}
-    except (json.JSONDecodeError, OSError):
-        pass
-    return {}
+    sessions = data.get("sessions")
+    if not isinstance(sessions, dict):
+        return {}
+    return {key: value for key, value in sessions.items() if isinstance(value, dict)}
 
 
 def _save_auth_sessions(sessions: dict[str, dict]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with AUTH_SESSIONS_PATH.open("w", encoding="utf-8") as handle:
-        json.dump({"sessions": sessions}, handle, ensure_ascii=False, indent=2)
+    _save_json_file(AUTH_SESSIONS_PATH, {"sessions": sessions})
     _chmod_sensitive(AUTH_SESSIONS_PATH)
 
 
@@ -2195,13 +2233,15 @@ def validate_persistent_session(token: str, *, touch: bool = True) -> dict | Non
 
 def set_persistent_session_cookie(token: str) -> None:
     expires_at = datetime.now() + timedelta(seconds=session_max_age_seconds())
-    get_cookie_manager().set(
-        SESSION_COOKIE_NAME,
-        token,
-        expires_at=expires_at,
-        same_site="lax",
-        key="set_session_cookie",
-    )
+    cookie_kwargs: dict[str, object] = {
+        "expires_at": expires_at,
+        "same_site": "lax",
+        "key": "set_session_cookie",
+    }
+    secure = _cookie_secure_flag()
+    if secure is not None:
+        cookie_kwargs["secure"] = secure
+    get_cookie_manager().set(SESSION_COOKIE_NAME, token, **cookie_kwargs)
 
 
 def clear_persistent_session_cookie() -> None:
@@ -2604,7 +2644,7 @@ def render_admin_users_section() -> None:
 
 
 def render_admin_master_section() -> None:
-    sync_master_from_all_user_data()
+    maybe_sync_master_from_all_user_data(force=True)
     register = load_master_register()
     st.caption(t("master_admin_description"))
     st.metric("Master", len(register))
@@ -4200,7 +4240,7 @@ def sync_session_df_with_master() -> bool:
     if df is None or df.empty:
         return False
 
-    sync_master_from_all_user_data()
+    maybe_sync_master_from_all_user_data()
     register = load_master_register()
     updated, _matched = merge_master_register_statuses(df, register)
 
@@ -4243,6 +4283,7 @@ def handle_file_upload(uploaded) -> bool:
         st.session_state.session_restored = False
         save_state(key, dataframe_to_state(full_df))
         save_active_list(full_df)
+        maybe_sync_master_from_all_user_data(force=True)
         return True
     except Exception:
         st.error(t("upload_error"))
@@ -4393,6 +4434,71 @@ def render_pagination_bar(total_rows: int, page_size: int, page_number: int) -> 
     return start, end, page_number
 
 
+def persist_citizen_status_change(
+    *,
+    updated: pd.DataFrame,
+    updated_row: pd.Series,
+    old_status: str,
+    list_key: str | None,
+) -> None:
+    """Gem statusændring i én låst transaktion (liste, master, history, audit)."""
+    audit_entry = {
+        "id": secrets.token_hex(8),
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "username": current_username(),
+        "role": current_user().get("role", "user") if current_user() else "user",
+        "citizen_id": str(updated_row["_id"]),
+        "citizen_name": repair_text(str(updated_row["Navn"])),
+        "citizen_address": repair_text(str(updated_row["Adresse"])),
+        "citizen_phone": repair_text(str(updated_row["Telefonnummer"])),
+        "old_status": old_status,
+        "new_status": str(updated_row["Status"]),
+        "list_key": list_key,
+    }
+
+    with _data_file_lock(shared=False):
+        if list_key:
+            key = _safe_storage_key(list_key)
+            _write_text_atomic(
+                storage_path(key),
+                json.dumps(dataframe_to_state(updated), ensure_ascii=False, indent=2) + "\n",
+            )
+
+        register_payload = _read_json_raw(MASTER_REFERENCE_REGISTER_PATH, {"cleared": False, "entries": []})
+        register_state = _parse_master_register_payload(register_payload)
+        register = list(register_state["entries"])  # type: ignore[arg-type]
+        upsert_master_register_entry(updated_row, register)
+        _write_text_atomic(
+            MASTER_REFERENCE_REGISTER_PATH,
+            json.dumps({"cleared": False, "entries": register}, ensure_ascii=False, indent=2) + "\n",
+        )
+
+        history = _read_json_raw(STATUS_HISTORY_PATH, {})
+        if not isinstance(history, dict):
+            history = {}
+        upsert_history_entry(updated_row, history)
+        _write_text_atomic(
+            STATUS_HISTORY_PATH,
+            json.dumps(history, ensure_ascii=False, indent=2) + "\n",
+        )
+
+        audit_payload = _read_json_raw(AUDIT_LOG_PATH, {"entries": []})
+        if isinstance(audit_payload, dict) and isinstance(audit_payload.get("entries"), list):
+            entries = [entry for entry in audit_payload["entries"] if isinstance(entry, dict)]
+        elif isinstance(audit_payload, list):
+            entries = [entry for entry in audit_payload if isinstance(entry, dict)]
+        else:
+            entries = []
+        entries.append(audit_entry)
+        _write_text_atomic(
+            AUDIT_LOG_PATH,
+            json.dumps({"entries": entries[-MAX_AUDIT_ENTRIES:]}, ensure_ascii=False, indent=2) + "\n",
+        )
+
+    save_active_list(updated)
+    _touch_master_sync_stamp()
+
+
 def handle_citizen_status_change(citizen_id: str) -> None:
     widget_key = f"status_{citizen_id}"
     new_status = st.session_state.get(widget_key)
@@ -4413,24 +4519,13 @@ def handle_citizen_status_change(citizen_id: str) -> None:
 
     updated = update_citizen_status(df, citizen_id, new_status)
     st.session_state.citizens_df = updated
-    save_state(st.session_state.list_key, dataframe_to_state(updated))
     updated_row = updated[updated["_id"] == citizen_id].iloc[0]
-    register = load_master_register()
-    upsert_master_register_entry(updated_row, register)
-    save_master_register(register, cleared=False)
-    history = load_status_history()
-    upsert_history_entry(updated_row, history)
-    save_status_history(history)
-    append_audit_log(
-        citizen_id=str(updated_row["_id"]),
-        citizen_name=str(updated_row["Navn"]),
-        citizen_address=str(updated_row["Adresse"]),
-        citizen_phone=str(updated_row["Telefonnummer"]),
+    persist_citizen_status_change(
+        updated=updated,
+        updated_row=updated_row,
         old_status=str(old_status),
-        new_status=str(new_status),
         list_key=st.session_state.get("list_key"),
     )
-    save_active_list(updated)
     st.session_state._skip_master_sync_once = True
     st.toast(t("status_saved"), icon="✅")
 

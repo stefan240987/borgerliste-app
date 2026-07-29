@@ -4,6 +4,50 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.1.1] — 2026-07-29 (stabilitet / sikkerhed / performance)
+
+Sammenlignet med **v1.1.0**.
+
+Docker-image:
+
+```text
+ghcr.io/stefan240987/borgerliste-app:1.1.1
+ghcr.io/stefan240987/borgerliste-app:latest
+```
+
+### Tilføjet
+
+- **Atomic JSON-skrivning** — fil-lås (`fcntl`) + temp-fil + `os.replace` for alle JSON-datafiler.
+- **Master-sync throttling** — fuld sync fra alle brugere køres max hver 60 sekund (ikke ved hvert page view).
+- **Batch status-gem** — én låst transaktion for liste, master, history og audit ved statusændring.
+- **Excel upload-grænse** — samme 25 MB grænse som CSV (læser bytes før parsing).
+- **Secure session cookie** — `BORGERLISTE_COOKIE_SECURE=true` i produktion bag HTTPS.
+- **Proxy-aware rate limit** — `X-Forwarded-For` bruges kun når `BORGERLISTE_TRUST_PROXY=true`.
+- **Non-root Docker** — container kører som `appuser` (uid 1000).
+
+### Ændret
+
+- `sync_session_df_with_master()` kalder throttlet sync i stedet for fuld sync hver gang.
+- Fuld master-sync tvinges ved login-gendannelse, upload og admin master-panel.
+
+### Rettet
+
+- Race conditions ved samtidige JSON-skrivninger mellem brugere.
+- Excel-filer kunne omgå upload-størrelsesgrænse.
+- Unødvendig disk- og CPU-belastning ved hver sideindlæsning.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.1.1
+# Tilføj i .env bag HTTPS:
+# BORGERLISTE_COOKIE_SECURE=true
+# BORGERLISTE_TRUST_PROXY=true   # kun bag reverse proxy
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.1.0] — 2026-07-29 (Docker / GHCR)
 
 Sammenlignet med **v1.0.x** (seneste: commit `701f333` — tema-rettelser i Docker, ingen login).

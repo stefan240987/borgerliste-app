@@ -1,6 +1,6 @@
 # Borgerliste
 
-**Version 1.1.0** — se [CHANGELOG.md](CHANGELOG.md) for opgraderingsvejledning fra v1.0.x.
+**Version 1.1.1** — se [CHANGELOG.md](CHANGELOG.md) for opgraderingsvejledning.
 
 Streamlit-app til kontakt og opfølgning på borgere. Understøtter upload af Excel/CSV, statussporing, master-register med 2/3-matching, multi-bruger login, eksport og Docker-deploy.
 
@@ -96,7 +96,7 @@ docker compose -f docker-compose.ghcr.yml up -d
 Se [CHANGELOG.md](CHANGELOG.md) for ændringer mellem versioner.
 
 ```bash
-docker pull ghcr.io/stefan240987/borgerliste-app:1.1.0
+docker pull ghcr.io/stefan240987/borgerliste-app:1.1.1
 # eller :latest
 docker stop borgerliste-app
 docker rm borgerliste-app

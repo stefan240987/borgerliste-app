@@ -4,6 +4,23 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.2.1] — 2026-07-30 (Docker hotfix)
+
+### Rettet
+
+- **Docker/Streamlit-stabilitet** — fjernet `@st.fragment(run_every=15)` session-watchdog, som gav gentagne *fragment does not exist*-fejl og kunne genstarte containeren.
+- Session udløb håndteres nu via let klient-side reload-tjek + serverside validering ved hver sidevisning.
+- Fjernet overflødig `server.enableCORS=false` i Streamlit-config (konflikt med XSRF-beskyttelse).
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.2.1
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.2.0] — 2026-07-29 (GDPR)
 
 ### Tilføjet

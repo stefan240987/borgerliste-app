@@ -62,7 +62,7 @@ COOKIE_MANAGER_INSTANCE_KEY = "_borgerliste_cookie_manager_instance"
 DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 SIDEBAR_AUTO_COLLAPSE_SECONDS = 10
 PASSWORD_HASH_ITERATIONS = 120_000
 PII_FIELDS = ("Navn", "Adresse", "Telefonnummer")
@@ -2608,21 +2608,68 @@ def session_idle_timeout_seconds() -> int:
 SESSION_IDLE_POLL_SECONDS = 15
 
 
-@st.fragment(run_every=SESSION_IDLE_POLL_SECONDS)
-def session_idle_watchdog() -> None:
-    """Tjek session udløb i baggrunden uden at genindlæse hele siden."""
+def current_session_expires_at() -> datetime | None:
+    """Tidspunkt hvor den aktuelle session udløber (inaktivitet eller max-alder)."""
+    token = st.session_state.get("auth_token")
+    if not token or not st.session_state.get("authenticated"):
+        return None
+    entry = _load_auth_sessions().get(str(token))
+    if not entry:
+        return None
+    stamps = _session_timestamps(entry)
+    if stamps is None:
+        return None
+    created, last_activity = stamps
+    idle_deadline = last_activity + timedelta(seconds=session_idle_timeout_seconds())
+    max_deadline = created + timedelta(seconds=session_max_age_seconds())
+    return min(idle_deadline, max_deadline)
+
+
+def inject_session_idle_reload_watch(expires_at: datetime) -> None:
+    """Genindlæs siden når session udløber — uden Streamlit-fragment polling."""
+    expires_ms = int(expires_at.timestamp() * 1000)
+    poll_ms = SESSION_IDLE_POLL_SECONDS * 1000
+    components.html(
+        f"""
+        <script>
+        (function () {{
+            const win = window.parent;
+            const expiresAt = {expires_ms};
+            const pollMs = {poll_ms};
+            if (win.__borgerlisteIdleReloadTimer) {{
+                win.clearInterval(win.__borgerlisteIdleReloadTimer);
+            }}
+            win.__borgerlisteIdleReloadTimer = win.setInterval(function () {{
+                if (Date.now() >= expiresAt) {{
+                    win.clearInterval(win.__borgerlisteIdleReloadTimer);
+                    win.__borgerlisteIdleReloadTimer = null;
+                    win.location.reload();
+                }}
+            }}, pollMs);
+        }})();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def ensure_authenticated_session() -> bool:
+    """Validér session ved hver fuld sidevisning. Returnerer False hvis brugeren er logget ud."""
     if not st.session_state.get("authenticated"):
-        return
-    token = st.session_state.get("auth_token") or _session_cookie_token()
+        return True
+    token = st.session_state.get("auth_token")
     if not token:
-        return
-    st.session_state.auth_token = str(token)
-    account = validate_persistent_session(str(token), touch=False)
-    if account is not None:
-        return
-    logout_user()
-    st.session_state.session_expired_notice = True
-    st.rerun()
+        logout_user()
+        st.session_state.session_expired_notice = True
+        return False
+    account = validate_persistent_session(str(token), touch=True)
+    if account is None:
+        logout_user()
+        st.session_state.session_expired_notice = True
+        return False
+    st.session_state.current_user = account
+    return True
 
 
 def session_max_age_seconds() -> int:
@@ -3023,7 +3070,10 @@ def finalize_sidebar_controls(*, show_pin: bool) -> None:
 
 def finish_page(*, show_pin: bool) -> None:
     finalize_sidebar_controls(show_pin=show_pin)
-    session_idle_watchdog()
+    if st.session_state.get("authenticated"):
+        expires_at = current_session_expires_at()
+        if expires_at is not None:
+            inject_session_idle_reload_watch(expires_at)
 
 
 def render_page_navigation() -> None:
@@ -5383,6 +5433,10 @@ def main() -> None:
             st.caption(t("app_subtitle"))
         render_sidebar_settings()
         finish_page(show_pin=False)
+        return
+
+    if not ensure_authenticated_session():
+        st.rerun()
         return
 
     ensure_auth_cookie_synced()

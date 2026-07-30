@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.2.2] — 2026-07-30 (Upload hotfix)
+
+### Rettet
+
+- **Fil-upload crash** — håndterer Streamlits `DeletedFile` i session state (AttributeError ved upload efter rerun/genstart).
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.2.2
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.2.1] — 2026-07-30 (Docker hotfix)
 
 ### Rettet

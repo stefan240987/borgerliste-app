@@ -27,6 +27,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from cryptography.fernet import Fernet, InvalidToken
+from streamlit.runtime.uploaded_file_manager import DeletedFile, UploadedFile
 
 APP_ROOT = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("BORGERLISTE_DATA_DIR", APP_ROOT / "data"))
@@ -62,7 +63,7 @@ COOKIE_MANAGER_INSTANCE_KEY = "_borgerliste_cookie_manager_instance"
 DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 SIDEBAR_AUTO_COLLAPSE_SECONDS = 10
 PASSWORD_HASH_ITERATIONS = 120_000
 PII_FIELDS = ("Navn", "Adresse", "Telefonnummer")
@@ -5075,7 +5076,35 @@ def handle_file_upload(uploaded) -> bool:
         return False
 
 
-def _upload_signature(uploaded) -> str:
+def _coerce_uploaded_file(value: object) -> UploadedFile | None:
+    """Accepter kun rigtige uploads — Streamlit kan efterlade DeletedFile i session state."""
+    if value is None:
+        return None
+    if isinstance(value, DeletedFile):
+        return None
+    if isinstance(value, UploadedFile):
+        return value
+    if isinstance(value, list):
+        for item in value:
+            coerced = _coerce_uploaded_file(item)
+            if coerced is not None:
+                return coerced
+        return None
+    name = getattr(value, "name", None)
+    if name and callable(getattr(value, "read", None)):
+        return value  # type: ignore[return-value]
+    return None
+
+
+def _clear_stale_upload_state() -> None:
+    raw = st.session_state.get("borgerliste_file_uploader")
+    if raw is None:
+        return
+    if _coerce_uploaded_file(raw) is None:
+        st.session_state.pop("borgerliste_file_uploader", None)
+
+
+def _upload_signature(uploaded: UploadedFile) -> str:
     size = getattr(uploaded, "size", None)
     if size is None:
         try:
@@ -5120,9 +5149,14 @@ def render_upload_section() -> None:
                 label_visibility="collapsed",
                 key="borgerliste_file_uploader",
             )
+            uploaded = _coerce_uploaded_file(uploaded)
             if uploaded is None:
-                uploaded = st.session_state.get("borgerliste_file_uploader")
-            if uploaded is not None:
+                uploaded = _coerce_uploaded_file(st.session_state.get("borgerliste_file_uploader"))
+            if uploaded is None:
+                _clear_stale_upload_state()
+                st.session_state.pop("_last_upload_sig", None)
+                st.session_state.pop("_upload_error_detail", None)
+            else:
                 signature = _upload_signature(uploaded)
                 needs_upload = st.session_state.get("_last_upload_sig") != signature
                 if not needs_upload and (
@@ -5133,12 +5167,10 @@ def render_upload_section() -> None:
                 if needs_upload:
                     if handle_file_upload(uploaded):
                         st.session_state._last_upload_sig = signature
+                        st.session_state.pop("borgerliste_file_uploader", None)
                         st.rerun()
                     else:
                         st.session_state.pop("_last_upload_sig", None)
-            else:
-                st.session_state.pop("_last_upload_sig", None)
-                st.session_state.pop("_upload_error_detail", None)
 
             if detail := st.session_state.get("_upload_error_detail"):
                 st.caption(detail)

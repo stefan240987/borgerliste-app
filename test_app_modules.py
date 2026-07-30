@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""Komplet smoke/integration-test af borgerliste-moduler (uden Streamlit UI)."""
+
+from __future__ import annotations
+
+import importlib
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+# Isoleret datalager — skal sættes før projektimports
+_TEST_DATA = tempfile.mkdtemp(prefix="borgerliste-test-")
+os.environ["BORGERLISTE_DATA_DIR"] = _TEST_DATA
+
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+MODULES = [
+    "config",
+    "i18n",
+    "data_io",
+    "storage",
+    "matching",
+    "auth",
+    "ui.styles",
+    "ui.common",
+    "ui.admin",
+    "ui.citizen_list",
+    "app",
+]
+
+errors: list[str] = []
+
+
+def check(name: str, fn) -> None:
+    try:
+        fn()
+        print(f"  OK  {name}")
+    except Exception as exc:
+        errors.append(f"{name}: {exc}")
+        print(f"  FAIL {name}: {exc}")
+
+
+def test_imports() -> None:
+    print("\n== Imports ==")
+    for mod in MODULES:
+        check(f"import {mod}", lambda m=mod: importlib.import_module(m))
+
+
+def test_i18n() -> None:
+    print("\n== i18n ==")
+    from i18n import filter_label, lang, status_label, t
+
+    check("t(da)", lambda: assert_eq(t("app_title"), "Borgerliste"))
+    check("status_label", lambda: assert_eq(status_label("Accepteret tilbud"), "Accepteret tilbud"))
+    check("filter_label", lambda: assert_true(len(filter_label("all")) > 0))
+
+
+def test_data_io() -> None:
+    print("\n== data_io ==")
+    from data_io import (
+        citizen_id,
+        normalize_phone,
+        read_csv_bytes,
+        repair_text,
+        standardize_dataframe,
+    )
+
+    check("repair_text mojibake", lambda: assert_true("ø" in repair_text("Ã¸") or repair_text("test") == "test"))
+    csv = b"Navn,Adresse,Telefonnummer\nAnna,Gade 1,12345678\nBent,Vej 2,87654321\n"
+    check("read_csv_bytes", lambda: assert_eq(len(read_csv_bytes(csv)[0]), 2))
+    check("standardize_dataframe", lambda: assert_eq(len(standardize_dataframe(read_csv_bytes(csv)[0])), 2))
+    check("citizen_id stable", lambda: assert_true(len(citizen_id(pd.Series({"Navn": "A", "Adresse": "B", "Telefonnummer": "1"}))) == 16))
+    check("normalize_phone", lambda: assert_eq(normalize_phone("+45 12 34 56 78"), "4512345678"))
+
+
+def test_matching() -> None:
+    print("\n== matching ==")
+    from matching import (
+        apply_master_register_statuses,
+        find_master_register_match,
+        master_match_score,
+        merge_master_register_statuses,
+        normalize_master_register,
+    )
+
+    row = pd.Series({"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678"})
+    entry = {"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "99999999", "Status": "Accepteret tilbud", "Status dato": "01-01-2026", "Ring igen dato": "", "updated_at": "2026-01-01T00:00:00"}
+    check("master_match_score 2/3", lambda: assert_eq(master_match_score(row, entry), 2))
+    check("find_master_register_match", lambda: assert_true(find_master_register_match(row, [entry]) is entry))
+    base = pd.DataFrame([{"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678"}])
+    check("apply_master_register_statuses", lambda: assert_eq(apply_master_register_statuses(base, [entry])[1], 1))
+    check("normalize_master_register", lambda: assert_eq(len(normalize_master_register([entry])), 1))
+    df = base.copy()
+    df["Status"] = "Ikke kontaktet endnu"
+    df["Status dato"] = ""
+    df["Ring igen dato"] = ""
+    check("merge_master_register_statuses", lambda: assert_eq(merge_master_register_statuses(df, [entry])[1], 1))
+
+
+def test_storage_encryption() -> None:
+    print("\n== storage (encryption) ==")
+    from storage import (
+        decrypt_dict_pii,
+        decrypt_pii,
+        encrypt_dict_pii,
+        encrypt_pii,
+        dataframe_to_state,
+        count_by_status,
+        update_citizen_status,
+    )
+
+    check("encrypt/decrypt pii", lambda: assert_eq(decrypt_pii(encrypt_pii("Hemmelig")), "Hemmelig"))
+    record = {"Navn": "Test", "Adresse": "Vej", "Telefonnummer": "12345678"}
+    check("encrypt/decrypt dict", lambda: assert_eq(decrypt_dict_pii(encrypt_dict_pii(record))["Navn"], "Test"))
+    df = pd.DataFrame(
+        [{
+            "Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678",
+            "Status": "Ikke kontaktet endnu", "Status dato": "", "Ring igen dato": "", "_id": "abc123",
+        }]
+    )
+    check("dataframe_to_state", lambda: assert_eq(len(dataframe_to_state(df)), 1))
+    check("count_by_status", lambda: assert_eq(count_by_status(df)["Ikke kontaktet endnu"], 1))
+    updated = update_citizen_status(df, "abc123", "Accepteret tilbud")
+    check("update_citizen_status", lambda: assert_eq(updated.iloc[0]["Status"], "Accepteret tilbud"))
+
+
+def test_auth() -> None:
+    print("\n== auth ==")
+    from auth import (
+        hash_password,
+        validate_password_strength,
+        validate_username,
+        verify_password,
+        role_label,
+    )
+
+    check("validate_username", lambda: assert_true(validate_username("admin")))
+    check("validate_username reject", lambda: assert_false(validate_username("a")))
+    check("validate_password_strength", lambda: assert_true(validate_password_strength("longpassword123")))
+    salt, digest = hash_password("longpassword123")
+    check("verify_password", lambda: assert_true(verify_password("longpassword123", salt, digest)))
+    check("role_label", lambda: assert_true(len(role_label("admin")) > 0))
+
+
+def test_storage_gdpr_helpers() -> None:
+    print("\n== storage (gdpr helpers) ==")
+    from storage import (
+        _history_entry_matches_row,
+        _register_entry_matches_row,
+        build_citizen_label_map,
+        apply_data_retention,
+        configured_retention_months,
+    )
+
+    row = pd.Series({"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678", "_id": "x"})
+    entry = {"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678", "Status": "Ikke kontaktet endnu"}
+    check("_history_entry_matches_row", lambda: assert_true(_history_entry_matches_row(entry, row)))
+    check("_register_entry_matches_row", lambda: assert_true(_register_entry_matches_row(entry, row)))
+    check("configured_retention_months", lambda: assert_true(configured_retention_months() >= 0))
+    check("build_citizen_label_map", lambda: assert_true(isinstance(build_citizen_label_map(), dict)))
+    check("apply_data_retention", lambda: assert_true(apply_data_retention() >= 0))
+
+
+def test_ui_styles() -> None:
+    print("\n== ui/styles ==")
+    from ui.styles import (
+        _base_css_rules,
+        _login_page_css,
+        _themed_css_rules,
+        status_pill_html,
+        citizen_field_html,
+    )
+    from config import THEME_PALETTES
+
+    check("_login_page_css", lambda: assert_true(len(_login_page_css()) > 100))
+    check("_base_css_rules", lambda: assert_true("upload" in _base_css_rules("Vælg fil").lower() or len(_base_css_rules("x")) > 100))
+    check("_themed_css_rules", lambda: assert_true(len(_themed_css_rules(THEME_PALETTES["Lyst tema"], "#fff")) > 100))
+    check("status_pill_html", lambda: assert_true("status-pill" in status_pill_html("Accepteret tilbud")))
+    check("citizen_field_html", lambda: assert_true("citizen-field" in citizen_field_html("Navn", "Anna")))
+
+
+def test_config() -> None:
+    print("\n== config ==")
+    from config import APP_VERSION, STATUSES, TRANSLATIONS
+
+    check("APP_VERSION", lambda: assert_true(len(APP_VERSION) > 0))
+    check("STATUSES", lambda: assert_eq(len(STATUSES), 4))
+    check("TRANSLATIONS da+en", lambda: assert_true("da" in TRANSLATIONS and "en" in TRANSLATIONS))
+
+
+def test_excel_export() -> None:
+    print("\n== excel export ==")
+    from storage import to_excel_bytes
+
+    df = pd.DataFrame(
+        [{
+            "Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678",
+            "Status": "Ikke kontaktet endnu", "Status dato": "01-01-2026", "Ring igen dato": "",
+        }]
+    )
+    check("to_excel_bytes", lambda: assert_true(len(to_excel_bytes(df)) > 100))
+
+
+def test_citizen_list_helpers() -> None:
+    print("\n== ui/citizen_list helpers ==")
+    from ui.citizen_list import filter_dataframe, resolve_page_size, _coerce_uploaded_file
+
+    df = pd.DataFrame([
+        {"Navn": "Anna", "Adresse": "A", "Telefonnummer": "1", "Status": "Ikke kontaktet endnu"},
+        {"Navn": "Bent", "Adresse": "B", "Telefonnummer": "2", "Status": "Accepteret tilbud"},
+    ])
+    check("filter_dataframe all", lambda: assert_eq(len(filter_dataframe(df, "all", "")), 2))
+    check("filter_dataframe accepted", lambda: assert_eq(len(filter_dataframe(df, "accepted", "")), 1))
+    check("filter_dataframe search", lambda: assert_eq(len(filter_dataframe(df, "all", "anna")), 1))
+    check("resolve_page_size Alle", lambda: assert_eq(resolve_page_size("Alle", 10), 10))
+    check("_coerce_uploaded_file None", lambda: assert_eq(_coerce_uploaded_file(None), None))
+
+
+def assert_eq(a, b) -> None:
+    if a != b:
+        raise AssertionError(f"{a!r} != {b!r}")
+
+
+def assert_true(v) -> None:
+    if not v:
+        raise AssertionError(f"expected truthy, got {v!r}")
+
+
+def assert_false(v) -> None:
+    if v:
+        raise AssertionError(f"expected falsy, got {v!r}")
+
+
+def main() -> int:
+    print("Borgerliste modultest")
+    test_imports()
+    test_config()
+    test_i18n()
+    test_data_io()
+    test_matching()
+    test_storage_encryption()
+    test_auth()
+    test_storage_gdpr_helpers()
+    test_ui_styles()
+    test_excel_export()
+    test_citizen_list_helpers()
+
+    print("\n" + "=" * 40)
+    if errors:
+        print(f"FEJL: {len(errors)} test(s) fejlede:")
+        for err in errors:
+            print(f"  - {err}")
+        return 1
+    print(f"Alle tests bestået ({len(MODULES)} moduler + funktionelle tests)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

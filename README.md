@@ -1,61 +1,116 @@
 # Borgerliste
 
-**Version 1.1.2** — se [CHANGELOG.md](CHANGELOG.md) for opgraderingsvejledning.
+**Version 1.3.0** — se [CHANGELOG.md](CHANGELOG.md) for ændringer og opgradering.
 
-Streamlit-app til kontakt og opfølgning på borgere. Understøtter upload af Excel/CSV, statussporing, master-register med 2/3-matching, multi-bruger login, eksport og Docker-deploy.
+Borgerliste er en webapp til **kontakt og opfølgning på borgere**. Den er målrettet teams, der arbejder med borgerlister — fx outreach, tilbud, opfølgning på henvendelser eller koordinering af telefon-/besøgskontakt.
+
+Upload en Excel- eller CSV-liste, følg status pr. borger, og genkend samme person automatisk på tværs af nye lister via et master-register.
+
+## Hvad bruges appen til?
+
+- **Importere borgerlister** — Excel (`.xlsx`) og CSV med navn, adresse og telefon
+- **Sætte og følge status** — fx *Ikke kontaktet endnu*, *Accepteret tilbud*, *Afslået*, *Ring igen om 6 måneder*
+- **Holde styr på kontakthistorik** — status gemmes og genkendes, selv når du uploader en ny liste
+- **Arbejde flere sammen** — login med roller (admin/bruger), hver bruger kan have egne lister
+- **Eksportere og dokumentere** — CSV/Excel-eksport og GDPR-værktøjer (sletning, indsigt, audit-log)
+
+Appen kører i browseren (desktop og mobil) og er bygget med Python/Streamlit.
 
 ## Funktioner
 
 - Upload af borgerlister (Excel/CSV)
-- Status: Ikke kontaktet, Accepteret, Afslået, Ring igen om 6 måneder
-- Master-register der genkender borgere på tværs af lister
+- Master-register med 2/3-matching på tværs af lister
+- Statussporing med historik
 - Dansk/engelsk og lyst/mørkt/system-tema
 - Mobilvenligt kort-layout
+- Kryptering af persondata (navn, adresse, telefon) i hvile
+- Multi-bruger login med session og rate-limited login
 - Docker-image publiceres automatisk til GitHub Container Registry (GHCR)
 
-## Lokal kørsel (Mac/PC)
+---
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run app.py
-```
+## Installér med Docker (anbefalet)
 
-Eller brug `Start Borgerliste.command` / `Start Borgerliste.bat`.
+Det nemmeste er at køre det færdigbyggede image fra GHCR. Data gemmes i et Docker-volume, så opdateringer bevarer dine lister og statusser.
 
-## GitHub + Docker (GHCR)
-
-Når koden pushes til `main`, bygger GitHub Actions automatisk et Docker-image og publicerer det her:
+**Image:**
 
 ```text
-ghcr.io/<dit-brugernavn>/borgerliste-app:latest
+ghcr.io/stefan240987/borgerliste-app:latest
 ```
 
-### 1. Opret GitHub-repo og push
+Tagget version (fx `1.2.2`) kan bruges i stedet for `latest`, hvis du vil låse til en bestemt udgave.
+
+### Krav
+
+- Docker og Docker Compose
+- Port **8501** tilgængelig på værten (eller brug reverse proxy — se [Data og sikkerhed](#data-og-sikkerhed))
+
+### Trin 1: Hent compose-filer
 
 ```bash
+git clone https://github.com/stefan240987/borgerliste-app.git
 cd borgerliste-app
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/stefan240987/borgerliste-app.git
-git push -u origin main
+cp .env.example .env
 ```
 
-Gå til **Actions** på GitHub og vent til workflow **Publish Docker image** er grøn.
+### Trin 2: Konfigurér `.env`
 
-### 2. Gør pakken tilgængelig (vigtigt til Unraid)
+Redigér `.env` og sæt mindst admin-bruger og adgangskode:
 
-For nem installation uden login:
+```env
+GHCR_IMAGE=ghcr.io/stefan240987/borgerliste-app:latest
+BORGERLISTE_ADMIN_USERNAME=admin
+BORGERLISTE_ADMIN_PASSWORD=din-staerke-adgangskode-her
+```
 
-1. GitHub → **Packages** → `borgerliste-app`
-2. **Package settings** → **Change visibility** → **Public**
+Adgangskoden skal være mindst 12 tegn. Brug en stærk, unik adgangskode i produktion.
 
-Alternativt: behold pakken privat og brug GitHub Personal Access Token med `read:packages` som registry-login på Unraid.
+### Trin 3: Start containeren
 
-## Installér på Unraid fra GHCR
+```bash
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
 
-### Metode A: Unraid Docker UI (nemmest)
+### Trin 4: Åbn appen
+
+```text
+http://<server-ip>:8501
+```
+
+Log ind med brugernavnet og adgangskoden fra `.env`.
+
+### Opdatér til ny version
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.2.2
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+Data i volume `borgerliste_data` bevares ved opdatering. Se [CHANGELOG.md](CHANGELOG.md) for detaljer mellem versioner.
+
+### Alternativ: `docker run` (uden Compose)
+
+Hvis du foretrækker én kommando uden compose-filer:
+
+```bash
+docker run -d \
+  --name borgerliste-app \
+  --restart unless-stopped \
+  -p 8501:8501 \
+  -e BORGERLISTE_DATA_DIR=/data \
+  -e BORGERLISTE_ADMIN_USERNAME=admin \
+  -e BORGERLISTE_ADMIN_PASSWORD=din-staerke-adgangskode-her \
+  -v borgerliste_data:/data \
+  ghcr.io/stefan240987/borgerliste-app:latest
+```
+
+---
+
+## Installér på Unraid
+
+### Docker UI (nemmest)
 
 1. **Docker → Add Container**
 2. Udfyld:
@@ -73,58 +128,48 @@ Alternativt: behold pakken privat og brug GitHub Personal Access Token med `read
 3. **Apply** og start containeren
 4. Åbn `http://<unraid-ip>:8501`
 
-Ved **privat** GHCR-pakke: tilføj **Registry URL** `ghcr.io` og login med GitHub-brugernavn + PAT.
+### GHCR-adgang
 
-### Metode B: SSH + Docker Compose
+Gør pakken **public** under GitHub → **Packages** → `borgerliste-app` → **Package settings**, så Unraid kan hente image uden login.
+
+Alternativt: behold pakken privat og log ind med GitHub-brugernavn + Personal Access Token (`read:packages`) som registry-login.
+
+---
+
+## Lokal kørsel uden Docker (udvikling)
 
 ```bash
-mkdir -p /mnt/user/appdata/borgerliste-app
-cd /mnt/user/appdata/borgerliste-app
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-# Hent kun compose-filer (eller git clone hele repoet)
-git clone https://github.com/stefan240987/borgerliste-app.git .
+Eller brug `Start Borgerliste.command` / `Start Borgerliste.bat`.
+
+Byg lokalt med Docker:
+
+```bash
 cp .env.example .env
-# Redigér .env — sæt GHCR_IMAGE til dit image
-nano .env
-
-docker compose -f docker-compose.ghcr.yml pull
-docker compose -f docker-compose.ghcr.yml up -d
-```
-
-### Opdatér til ny version
-
-Se [CHANGELOG.md](CHANGELOG.md) for ændringer mellem versioner.
-
-```bash
-docker pull ghcr.io/stefan240987/borgerliste-app:1.1.1
-# eller :latest
-docker stop borgerliste-app
-docker rm borgerliste-app
-# Start igen via Unraid UI, eller:
-docker compose -f docker-compose.ghcr.yml up -d
-```
-
-Data i volume/mappen `/mnt/user/appdata/borgerliste-data` bevares.
-
-## Udvikling: byg lokalt
-
-```bash
 docker compose up -d --build
 ```
 
-Se også [SERVER_DEPLOYMENT.md](SERVER_DEPLOYMENT.md).
+Se [SERVER_DEPLOYMENT.md](SERVER_DEPLOYMENT.md) for mere om server-deploy og reverse proxy.
+
+---
 
 ## Data og sikkerhed
 
-- Borgerdata gemmes i `/data` i containeren (Docker-volume)
+- Borgerdata gemmes i `/data` i containeren (Docker-volume `borgerliste_data`)
+- Persondata (navn, adresse, telefon) krypteres i hvile
 - Commit **aldrig** `data/`, `.env` eller `.streamlit/secrets.toml`
-- Sæt **stærk admin-adgangskode** i `.env` før produktion (`BORGERLISTE_ADMIN_PASSWORD`)
+- Sæt **stærk admin-adgangskode** i `.env` før produktion
 - Kun administratorer kan slette master-registeret (kræver admin-adgangskode)
-- Adgangskoder skal være mindst 12 tegn; login er rate-limited efter gentagne fejl
+- Login er rate-limited efter gentagne fejl
 - Session cookie holder dig logget ind ved browser-genindlæsning (standard: 24 timers inaktivitet, max 30 dage)
-- Konfigurer med `BORGERLISTE_SESSION_IDLE_HOURS` og `BORGERLISTE_SESSION_MAX_DAYS` i `.env`
-- Ved første lokal kørsel uden konfigureret admin-password oprettes en midlertidig adgangskode i `data/.admin_bootstrap.txt` — skift den og slet filen
-- Brug HTTPS via reverse proxy (Nginx Proxy Manager, Swag) på netværk/server; eksponér ikke port 8501 direkte mod internettet
+- Konfigurer med `BORGERLISTE_SESSION_IDLE_MINUTES` og `BORGERLISTE_SESSION_MAX_DAYS` i `.env`
+- Bag HTTPS reverse proxy: sæt `BORGERLISTE_COOKIE_SECURE=true` i `.env`
+- Eksponér ikke port 8501 direkte mod internettet — brug Nginx Proxy Manager, Swag, Caddy eller tilsvarende
 
 ## Backup
 
@@ -132,3 +177,7 @@ Se også [SERVER_DEPLOYMENT.md](SERVER_DEPLOYMENT.md).
 docker run --rm -v borgerliste_data:/data -v "$PWD":/backup alpine \
   tar czf /backup/borgerliste-data-backup.tar.gz -C /data .
 ```
+
+## Udvikling og CI
+
+Ved push til `main` bygger GitHub Actions automatisk og publicerer image til GHCR. Workflow: **Publish Docker image**.

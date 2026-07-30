@@ -1,0 +1,22 @@
+# Python / afhængigheder
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Brugerdata og følsomme filer (JSON, sessions, krypteringsnøgler)
+data/
+.env
+.streamlit/secrets.toml
+
+# Backup og udtrukne filer
+app.py.bak
+*.bak
+_extracted/
+
+# macOS / lokale pakker
+.DS_Store
+Borgerliste.app/
+
+# Git-intern (unødvendig kontekst for AI)
+.git/

@@ -4,6 +4,24 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.3.0] — 2026-07-30 (Modulær refaktor)
+
+### Ændret
+
+- **Modulopdeling** — monolitisk `app.py` opdelt i `config`, `i18n`, `data_io`, `storage`, `matching`, `auth` og `ui/*` for vedligeholdelse og testbarhed.
+- **README** — udvidet med Docker-vejledning og funktionsbeskrivelse.
+- **Dockerfile** — kopierer nye modulfiler ved build.
+- **Modultest** — `test_app_modules.py` til smoke/integration-test uden Streamlit UI.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.3.0
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.2.2] — 2026-07-30 (Upload hotfix)
 
 ### Rettet

@@ -4,6 +4,52 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.2.0] — 2026-07-29 (GDPR)
+
+### Tilføjet
+
+- **Kryptering i hvile** — navn, adresse og telefon krypteres (Fernet) i JSON, Parquet og CSV.
+- **Ret til sletning (Art. 17)** — slet én borger permanent fra alle lagre via borgerkort.
+- **Indsigt/portabilitet (Art. 15/20)** — JSON-eksport pr. borger med alle gemte data.
+- **Opbevaringsperiode** — admin konfigurerer auto-sletning af inaktive borgere (standard 24 mdr.).
+- **Audit-log uden PII** — kun borger-ID; eksisterende PII migreres væk ved indlæsning.
+- **Brugerdata-sletning** — admin kan slette gemte data ved deaktivering af bruger.
+- **Privatlivspolitik i app** — formål, rettigheder, sikkerhed og behandlingsfortegnelse (Art. 30).
+- **Min aktivitet** — alle brugere kan se egne statusændringer.
+
+### Ændret
+
+- Søgeforespørgsler gemmes ikke længere i session-metadata.
+- Sidebar “Privatliv og datasikkerhed” udvidet med GDPR-oplysninger.
+- Session-timeout konfigureres i **minutter** (`BORGERLISTE_SESSION_IDLE_MINUTES`); timer-fallback beholdes.
+
+### Rettet
+
+- **Fil-upload** — valg af CSV/Excel indlæser listen igen (session-watchdog og sidebar-eksport afbrød tidligere scriptet).
+- **Auto-logout ved inaktivitet** — virker uden browser-genindlæsning.
+- **Log ud** — sletter uploadet/gemt borgerliste for brugeren.
+
+### Miljøvariabler
+
+- `BORGERLISTE_ENCRYPTION_KEY` — valgfri Fernet-nøgle; oprettes automatisk i `/data` hvis tom.
+- `BORGERLISTE_SESSION_IDLE_MINUTES` — erstatter `BORGERLISTE_SESSION_IDLE_HOURS` (fallback).
+
+Docker-image:
+
+```text
+ghcr.io/stefan240987/borgerliste-app:1.2.0
+ghcr.io/stefan240987/borgerliste-app:latest
+```
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.2.0
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.1.2] — 2026-07-29 (Docker hotfix + toast UI)
 
 ### Rettet

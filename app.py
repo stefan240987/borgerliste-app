@@ -26,6 +26,7 @@ import extra_streamlit_components as stx
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from cryptography.fernet import Fernet, InvalidToken
 
 APP_ROOT = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("BORGERLISTE_DATA_DIR", APP_ROOT / "data"))
@@ -52,18 +53,24 @@ BOOTSTRAP_ADMIN_PATH = DATA_DIR / ".admin_bootstrap.txt"
 AUTH_SESSIONS_PATH = DATA_DIR / "auth_sessions.json"
 APP_SETTINGS_PATH = DATA_DIR / "app_settings.json"
 SESSION_COOKIE_NAME = "borgerliste_session"
-DEFAULT_SESSION_IDLE_HOURS = 24
+DEFAULT_SESSION_IDLE_MINUTES = 24 * 60
 DEFAULT_SESSION_MAX_DAYS = 30
-MIN_SESSION_IDLE_HOURS = 1
-MAX_SESSION_IDLE_HOURS = 168
+MIN_SESSION_IDLE_MINUTES = 1
+MAX_SESSION_IDLE_MINUTES = 168 * 60
 COOKIE_MANAGER_KEY = "borgerliste_cookie_manager"
 COOKIE_MANAGER_INSTANCE_KEY = "_borgerliste_cookie_manager_instance"
 DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.2.0"
 SIDEBAR_AUTO_COLLAPSE_SECONDS = 10
 PASSWORD_HASH_ITERATIONS = 120_000
+PII_FIELDS = ("Navn", "Adresse", "Telefonnummer")
+PII_ENC_PREFIX = "enc:v1:"
+ENCRYPTION_KEY_PATH = DATA_DIR / ".encryption_key"
+DEFAULT_RETENTION_MONTHS = 24
+MIN_RETENTION_MONTHS = 0
+MAX_RETENTION_MONTHS = 120
 
 STATUSES = [
     "Ikke kontaktet endnu",
@@ -148,11 +155,66 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "theme_light": "Lyst tema",
         "theme_dark": "Mørkt tema",
         "theme_browser": "Følger system (lys/mørk)",
-        "gdpr_title": "Om datasikkerhed",
+        "gdpr_title": "Privatliv og datasikkerhed",
         "gdpr_text": (
-            "Borgerdata gemmes kun lokalt på denne enhed eller server. "
+            "Borgerdata gemmes krypteret lokalt på denne enhed eller server. "
             "Del ikke filer med personoplysninger uden for jeres sikre kanaler."
         ),
+        "gdpr_purpose": "**Formål:** Opfølgning på borgerkontakt (navn, adresse, telefon og kontaktstatus).",
+        "gdpr_legal_basis": (
+            "**Behandlingsgrundlag:** Behandles af den dataansvarlige organisation "
+            "(typisk offentlig opgave eller legitim interesse). Appen indsamler ikke samtykke direkte fra borgere."
+        ),
+        "gdpr_data_types": "**Data:** Navn, adresse, telefonnummer og kontaktstatus. CPR behandles ikke.",
+        "gdpr_rights": (
+            "**Dine rettigheder:** Indsigt, berigtigelse, sletning og dataportabilitet kan håndteres "
+            "via eksport/sletning pr. borger og kontakt til jeres dataansvarlige."
+        ),
+        "gdpr_retention_info": "**Opbevaring:** Borgerdata slettes automatisk efter den konfigurerede periode uden aktivitet.",
+        "gdpr_security_info": (
+            "**Sikkerhed:** Adgangskontrol, kryptering i hvile, sessionsstyring og audit-log. "
+            "Brug HTTPS i produktion (`BORGERLISTE_COOKIE_SECURE=true`)."
+        ),
+        "gdpr_shared_register": (
+            "**Delt statusregister:** Autoriserede brugere deler kontaktstatus via et fælles master-register "
+            "for at genkende borgere på tværs af lister."
+        ),
+        "gdpr_contact": "**Kontakt:** Henvendelser om persondata rettes til jeres dataansvarlige organisation.",
+        "gdpr_citizen_title": "Borgerrettigheder",
+        "gdpr_erase_citizen": "Slet borger",
+        "gdpr_erase_confirm": "Bekræft sletning",
+        "gdpr_erase_cancel": "Annuller",
+        "gdpr_erase_warning": "Sletter permanent alle data om denne borger. Kan ikke fortrydes.",
+        "gdpr_erase_done": "Borger slettet.",
+        "gdpr_export_citizen": "Eksporter data (JSON)",
+        "gdpr_export_filename": "borger_{citizen_id}.json",
+        "account_activity_tab": "Min aktivitet",
+        "account_admin_gdpr_tab": "GDPR",
+        "admin_retention_title": "Dataopbevaring",
+        "admin_retention_label": "Slet inaktive borgere efter (måneder)",
+        "admin_retention_help": "0 = deaktiveret. Standard: 24 måneder uden statusaktivitet.",
+        "admin_retention_saved": "Opbevaringsperiode gemt.",
+        "admin_retention_invalid": "Angiv et helt tal mellem {min} og {max}.",
+        "admin_retention_current": "Nuværende: {months} måneder (0 = deaktiveret).",
+        "admin_retention_disabled": "Automatisk sletning er deaktiveret.",
+        "admin_retention_purged": "{count} inaktive borgere blev slettet ved login.",
+        "admin_deactivate_delete_data": "Slet brugerens gemte data",
+        "admin_user_deactivated_data_deleted": "Bruger {username} deaktiveret og data slettet.",
+        "admin_audit_col_id": "Borger-ID",
+        "admin_gdpr_processing_title": "Behandlingsfortegnelse (Art. 30)",
+        "admin_gdpr_processing_body": (
+            "| Punkt | Beskrivelse |\n"
+            "|---|---|\n"
+            "| Behandlingsaktivitet | Opfølgning på borgerkontakt |\n"
+            "| Kategorier af registrerede | Borgere på kontaktliste |\n"
+            "| Kategorier af personoplysninger | Navn, adresse, telefon, kontaktstatus |\n"
+            "| Modtagere | Autoriserede app-brugere i organisationen |\n"
+            "| Overførsler til tredjelande | Ingen |\n"
+            "| Opbevaring | Konfigurerbar (standard 24 mdr.) |\n"
+            "| Tekniske foranstaltninger | Login, kryptering, adgangskontrol, audit-log |"
+        ),
+        "user_audit_title": "Min aktivitet",
+        "user_audit_caption": "Dine seneste statusændringer.",
         "filter_title": "Filtrer borgere",
         "filter_all": "Alle borgere",
         "filter_not_contacted": "Ikke kontaktet",
@@ -197,7 +259,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "login_username": "Brugernavn",
         "login_locked_out": "For mange mislykkede forsøg. Prøv igen om {minutes} min.",
         "login_session_expired": "Din session er udløbet. Log ind igen.",
-        "session_valid_for": "Session aktiv i op til {hours} timer ved inaktivitet.",
+        "session_valid_for": "Session aktiv i op til {minutes} min. ved inaktivitet.",
         "bootstrap_admin_notice": "Første admin er oprettet. Se {path} for midlertidig adgangskode.",
         "upload_too_large": "Filen er for stor (maks. {max_mb} MB).",
         "role_admin": "Administrator",
@@ -207,6 +269,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "changed_by": "Sidst ændret af {username} ({timestamp})",
         "nav_borgerliste": "Borgerliste",
         "nav_account": "Min konto",
+        "nav_privacy": "Privatliv og datasikkerhed",
         "sidebar_pin": "Fastgør menuen, så den ikke lukker automatisk",
         "sidebar_unpin": "Menu fastgjort — klik for at frigøre",
         "account_title": "Min konto",
@@ -247,14 +310,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_password_reset_done": "Adgangskode nulstillet for {username}.",
         "account_admin_settings_tab": "Indstillinger",
         "admin_session_title": "Session og inaktivitet",
-        "admin_session_idle_label": "Log ud efter inaktivitet (timer)",
+        "admin_session_idle_label": "Log ud efter inaktivitet (minutter)",
         "admin_session_idle_help": (
             "Brugere logges automatisk ud efter denne periode uden aktivitet i appen. "
             "Gælder alle brugere."
         ),
         "admin_session_idle_saved": "Session-indstilling gemt.",
-        "admin_session_idle_invalid": "Angiv et helt tal mellem {min} og {max} timer.",
-        "admin_session_current": "Nuværende grænse: {hours} timer ved inaktivitet.",
+        "admin_session_idle_invalid": "Angiv et helt tal mellem {min} og {max} minutter.",
+        "admin_session_current": "Nuværende grænse: {minutes} min. ved inaktivitet.",
         "admin_session_save": "Gem indstilling",
         "admin_audit_title": "Status-log",
         "admin_audit_caption": "Seneste statusændringer på tværs af brugere.",
@@ -318,11 +381,66 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "theme_light": "Light theme",
         "theme_dark": "Dark theme",
         "theme_browser": "Follow system (light/dark)",
-        "gdpr_title": "Data security",
+        "gdpr_title": "Privacy and data security",
         "gdpr_text": (
-            "Citizen data is stored locally on this device or server only. "
+            "Citizen data is stored encrypted locally on this device or server only. "
             "Do not share files containing personal data outside your secure channels."
         ),
+        "gdpr_purpose": "**Purpose:** Follow-up on citizen contact (name, address, phone and contact status).",
+        "gdpr_legal_basis": (
+            "**Legal basis:** Processed by the data controller organisation "
+            "(typically public task or legitimate interest). The app does not collect consent directly from citizens."
+        ),
+        "gdpr_data_types": "**Data:** Name, address, phone number and contact status. National ID (CPR) is not processed.",
+        "gdpr_rights": (
+            "**Your rights:** Access, rectification, erasure and portability can be handled "
+            "via per-citizen export/erase and contact with your data controller."
+        ),
+        "gdpr_retention_info": "**Retention:** Citizen data is automatically deleted after the configured inactivity period.",
+        "gdpr_security_info": (
+            "**Security:** Access control, encryption at rest, session management and audit log. "
+            "Use HTTPS in production (`BORGERLISTE_COOKIE_SECURE=true`)."
+        ),
+        "gdpr_shared_register": (
+            "**Shared status register:** Authorised users share contact status via a common master register "
+            "to recognise citizens across lists."
+        ),
+        "gdpr_contact": "**Contact:** Personal data enquiries should be directed to your data controller organisation.",
+        "gdpr_citizen_title": "Citizen rights",
+        "gdpr_erase_citizen": "Delete citizen",
+        "gdpr_erase_confirm": "Confirm deletion",
+        "gdpr_erase_cancel": "Cancel",
+        "gdpr_erase_warning": "Permanently deletes all data about this citizen. Cannot be undone.",
+        "gdpr_erase_done": "Citizen deleted.",
+        "gdpr_export_citizen": "Export data (JSON)",
+        "gdpr_export_filename": "citizen_{citizen_id}.json",
+        "account_activity_tab": "My activity",
+        "account_admin_gdpr_tab": "GDPR",
+        "admin_retention_title": "Data retention",
+        "admin_retention_label": "Delete inactive citizens after (months)",
+        "admin_retention_help": "0 = disabled. Default: 24 months without status activity.",
+        "admin_retention_saved": "Retention period saved.",
+        "admin_retention_invalid": "Enter a whole number between {min} and {max}.",
+        "admin_retention_current": "Current: {months} months (0 = disabled).",
+        "admin_retention_disabled": "Automatic deletion is disabled.",
+        "admin_retention_purged": "{count} inactive citizens were deleted at login.",
+        "admin_deactivate_delete_data": "Delete user's stored data",
+        "admin_user_deactivated_data_deleted": "User {username} deactivated and data deleted.",
+        "admin_audit_col_id": "Citizen ID",
+        "admin_gdpr_processing_title": "Processing record (Art. 30)",
+        "admin_gdpr_processing_body": (
+            "| Item | Description |\n"
+            "|---|---|\n"
+            "| Processing activity | Citizen contact follow-up |\n"
+            "| Data subject categories | Citizens on contact list |\n"
+            "| Personal data categories | Name, address, phone, contact status |\n"
+            "| Recipients | Authorised app users in the organisation |\n"
+            "| Transfers to third countries | None |\n"
+            "| Retention | Configurable (default 24 mo.) |\n"
+            "| Technical measures | Login, encryption, access control, audit log |"
+        ),
+        "user_audit_title": "My activity",
+        "user_audit_caption": "Your recent status changes.",
         "filter_title": "Filter citizens",
         "filter_all": "All citizens",
         "filter_not_contacted": "Not contacted",
@@ -367,7 +485,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "login_username": "Username",
         "login_locked_out": "Too many failed attempts. Try again in {minutes} min.",
         "login_session_expired": "Your session has expired. Please sign in again.",
-        "session_valid_for": "Session stays active for up to {hours} hours of inactivity.",
+        "session_valid_for": "Session stays active for up to {minutes} min. of inactivity.",
         "bootstrap_admin_notice": "First admin created. See {path} for temporary password.",
         "upload_too_large": "File is too large (max {max_mb} MB).",
         "role_admin": "Administrator",
@@ -377,6 +495,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "changed_by": "Last changed by {username} ({timestamp})",
         "nav_borgerliste": "Citizen list",
         "nav_account": "My account",
+        "nav_privacy": "Privacy and data security",
         "sidebar_pin": "Pin menu to keep it open",
         "sidebar_unpin": "Menu pinned — click to unpin",
         "account_title": "My account",
@@ -417,14 +536,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_password_reset_done": "Password reset for {username}.",
         "account_admin_settings_tab": "Settings",
         "admin_session_title": "Session and inactivity",
-        "admin_session_idle_label": "Sign out after inactivity (hours)",
+        "admin_session_idle_label": "Sign out after inactivity (minutes)",
         "admin_session_idle_help": (
             "Users are automatically signed out after this period without activity in the app. "
             "Applies to all users."
         ),
         "admin_session_idle_saved": "Session setting saved.",
-        "admin_session_idle_invalid": "Enter a whole number between {min} and {max} hours.",
-        "admin_session_current": "Current limit: {hours} hours of inactivity.",
+        "admin_session_idle_invalid": "Enter a whole number between {min} and {max} minutes.",
+        "admin_session_current": "Current limit: {minutes} min. of inactivity.",
         "admin_session_save": "Save setting",
         "admin_audit_title": "Status log",
         "admin_audit_caption": "Recent status changes across users.",
@@ -748,6 +867,88 @@ def _save_json_file(path: Path, payload: object) -> None:
         _write_text_atomic(path, content)
 
 
+# ---------------------------------------------------------------------------
+# PII encryption at rest (GDPR Art. 32)
+# ---------------------------------------------------------------------------
+
+
+def _get_or_create_encryption_key() -> bytes:
+    env_key = os.environ.get("BORGERLISTE_ENCRYPTION_KEY", "").strip()
+    if env_key:
+        return env_key.encode("utf-8")
+    if ENCRYPTION_KEY_PATH.exists():
+        return ENCRYPTION_KEY_PATH.read_bytes().strip()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    key = Fernet.generate_key()
+    ENCRYPTION_KEY_PATH.write_bytes(key)
+    _chmod_sensitive(ENCRYPTION_KEY_PATH)
+    return key
+
+
+def _get_fernet() -> Fernet:
+    return Fernet(_get_or_create_encryption_key())
+
+
+def encrypt_pii(value: str) -> str:
+    text = repair_text(value)
+    if not text or text.startswith(PII_ENC_PREFIX):
+        return text
+    token = _get_fernet().encrypt(text.encode("utf-8"))
+    return PII_ENC_PREFIX + base64.urlsafe_b64encode(token).decode("ascii")
+
+
+def decrypt_pii(value: object) -> str:
+    text = repair_text(value)
+    if not text or not text.startswith(PII_ENC_PREFIX):
+        return text
+    encoded = text[len(PII_ENC_PREFIX) :]
+    try:
+        token = base64.urlsafe_b64decode(encoded.encode("ascii"))
+        return _get_fernet().decrypt(token).decode("utf-8")
+    except (InvalidToken, ValueError):
+        return text
+
+
+def encrypt_dict_pii(record: dict) -> dict:
+    out = dict(record)
+    for field in PII_FIELDS:
+        if field in out and out[field]:
+            out[field] = encrypt_pii(str(out[field]))
+    return out
+
+
+def decrypt_dict_pii(record: dict) -> dict:
+    out = dict(record)
+    for field in PII_FIELDS:
+        if field in out and out[field]:
+            out[field] = decrypt_pii(out[field])
+    return out
+
+
+def encrypt_df_pii(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for column in PII_FIELDS:
+        if column in out.columns:
+            out[column] = out[column].map(lambda value: encrypt_pii(str(value)) if repair_text(value) else value)
+    return out
+
+
+def decrypt_df_pii(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for column in PII_FIELDS:
+        if column in out.columns:
+            out[column] = out[column].map(lambda value: decrypt_pii(value))
+    return out
+
+
+def _record_needs_encryption(record: dict) -> bool:
+    for field in PII_FIELDS:
+        value = str(record.get(field, ""))
+        if value and not value.startswith(PII_ENC_PREFIX):
+            return True
+    return False
+
+
 def _master_sync_is_stale() -> bool:
     try:
         if not MASTER_SYNC_STAMP_PATH.exists():
@@ -994,8 +1195,12 @@ def load_master_register() -> list[dict]:
     entries = state["entries"]  # type: ignore[assignment]
     if not isinstance(entries, list):
         return []
-    normalized = normalize_master_register(entries)
-    if len(normalized) != len(entries):
+    decrypted = [decrypt_dict_pii(entry) for entry in entries if isinstance(entry, dict)]
+    normalized = normalize_master_register(decrypted)
+    needs_save = len(normalized) != len(decrypted) or any(
+        _record_needs_encryption(entry) for entry in entries if isinstance(entry, dict)
+    )
+    if needs_save:
         save_master_register(normalized, cleared=bool(state["cleared"]))
     return normalized
 
@@ -1006,7 +1211,8 @@ def is_master_register_cleared() -> bool:
 
 
 def save_master_register(register: list[dict], *, cleared: bool = False) -> None:
-    _save_json_file(MASTER_REFERENCE_REGISTER_PATH, {"cleared": cleared, "entries": register})
+    encrypted = [encrypt_dict_pii(entry) for entry in register]
+    _save_json_file(MASTER_REFERENCE_REGISTER_PATH, {"cleared": cleared, "entries": encrypted})
 
 
 def clear_master_register() -> None:
@@ -1232,11 +1438,23 @@ def history_keys_for_row(row: pd.Series) -> list[str]:
 
 def load_status_history() -> dict[str, dict]:
     data = _load_json_file(STATUS_HISTORY_PATH, {})
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    decrypted = {
+        key: decrypt_dict_pii(entry) if isinstance(entry, dict) else entry
+        for key, entry in data.items()
+    }
+    if any(isinstance(entry, dict) and _record_needs_encryption(entry) for entry in data.values()):
+        save_status_history(decrypted)
+    return decrypted
 
 
 def save_status_history(history: dict[str, dict]) -> None:
-    _save_json_file(STATUS_HISTORY_PATH, history)
+    encrypted = {
+        key: encrypt_dict_pii(entry) if isinstance(entry, dict) else entry
+        for key, entry in history.items()
+    }
+    _save_json_file(STATUS_HISTORY_PATH, encrypted)
 
 
 def history_entry_from_row(row: pd.Series) -> dict[str, str]:
@@ -1407,14 +1625,21 @@ def ensure_user_data_loaded() -> None:
     if not st.session_state.get("authenticated") or not current_user():
         return
     username = current_username()
-    if st.session_state.get("user_data_loaded_for") == username:
-        return
+    first_load = st.session_state.get("user_data_loaded_for") != username
 
-    migrate_legacy_data_to_user(username)
-    apply_saved_user_preferences()
-    if st.session_state.citizens_df is None or st.session_state.citizens_df.empty:
+    if first_load:
+        migrate_legacy_data_to_user(username)
+        apply_saved_user_preferences()
+        if not st.session_state.get("retention_applied"):
+            purged = apply_data_retention()
+            st.session_state.retention_applied = True
+            if purged:
+                st.session_state.retention_purged_count = purged
+        st.session_state.user_data_loaded_for = username
+
+    df = st.session_state.get("citizens_df")
+    if df is None or (hasattr(df, "empty") and df.empty):
         restore_active_list_if_available()
-    st.session_state.user_data_loaded_for = username
 
 
 def save_active_session_metadata() -> None:
@@ -1430,21 +1655,21 @@ def save_active_session_metadata() -> None:
         "page_number": st.session_state.get("page_number", 0),
         "page_size": st.session_state.get("page_size", 25),
         "selected_filter": st.session_state.get("selected_filter", "all"),
-        "search_query": st.session_state.get("search_query", ""),
         "show_uploader": st.session_state.get("show_uploader", False),
         "saved_at": datetime.now().isoformat(timespec="seconds"),
     }
     _save_json_file(user_active_session_path(), meta)
 
 
-def save_active_list(df: pd.DataFrame) -> None:
-    if not current_user():
+def save_active_list(df: pd.DataFrame, *, username: str | None = None) -> None:
+    owner = username or (current_username() if current_user() else None)
+    if not owner:
         return
-    parquet_path = user_active_list_parquet()
-    csv_path = user_active_list_csv()
+    parquet_path = user_active_list_parquet(owner)
+    csv_path = user_active_list_csv(owner)
     parquet_path.parent.mkdir(parents=True, exist_ok=True)
 
-    export_df = df.copy()
+    export_df = encrypt_df_pii(df.copy())
     for column in ("Navn", "Adresse", "Telefonnummer", "Status", "Status dato", "Ring igen dato"):
         if column in export_df.columns:
             export_df[column] = export_df[column].map(_excel_safe_cell)
@@ -1461,7 +1686,8 @@ def save_active_list(df: pd.DataFrame) -> None:
             parquet_path.unlink()
 
     if saved_as_parquet or csv_path.exists():
-        save_active_session_metadata()
+        if not username:
+            save_active_session_metadata()
 
 
 def _read_active_list_file(username: str | None = None) -> pd.DataFrame | None:
@@ -1470,13 +1696,13 @@ def _read_active_list_file(username: str | None = None) -> pd.DataFrame | None:
 
     if parquet_path.exists():
         try:
-            return pd.read_parquet(parquet_path)
+            return decrypt_df_pii(pd.read_parquet(parquet_path))
         except Exception:
             pass
 
     if csv_path.exists():
         try:
-            return pd.read_csv(csv_path, encoding="utf-8-sig")
+            return decrypt_df_pii(pd.read_csv(csv_path, encoding="utf-8-sig"))
         except Exception:
             pass
 
@@ -1533,7 +1759,6 @@ def restore_active_list_if_available() -> bool:
     st.session_state.page_number = int(meta.get("page_number", 0))
     st.session_state.page_size = page_size if page_size in PAGE_SIZE_OPTIONS else 25
     st.session_state.selected_filter = selected_filter if selected_filter in FILTER_KEYS else "all"
-    st.session_state.search_query = str(meta.get("search_query", ""))
     st.session_state.show_uploader = bool(meta.get("show_uploader", False))
     st.session_state.filter_signature = None
     st.session_state.session_restored = True
@@ -1541,15 +1766,28 @@ def restore_active_list_if_available() -> bool:
     return True
 
 
-def clear_active_list() -> None:
-    if current_user():
+def clear_active_list(*, username: str | None = None, list_key: str | None = None) -> None:
+    owner = username
+    if owner is None and current_user():
+        owner = current_username()
+
+    if owner and owner != "unknown":
         for path in (
-            user_active_list_parquet(),
-            user_active_list_csv(),
-            user_active_session_path(),
+            user_active_list_parquet(owner),
+            user_active_list_csv(owner),
+            user_active_session_path(owner),
         ):
             if path.exists():
                 path.unlink()
+
+        key = list_key if list_key is not None else st.session_state.get("list_key")
+        if key:
+            try:
+                list_path = storage_path(str(key), owner)
+                if list_path.exists():
+                    list_path.unlink()
+            except ValueError:
+                pass
 
     st.session_state.citizens_df = None
     st.session_state.list_key = None
@@ -1659,6 +1897,7 @@ def _excel_safe_cell(value: object) -> str:
 
 
 def to_excel_bytes(df: pd.DataFrame) -> bytes:
+    sheet_name = (t("sheet_name") or "Borgerliste")[:31]
     column_names = {
         "Navn": t("col_name"),
         "Adresse": t("col_address"),
@@ -1675,14 +1914,33 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
 
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        export_df.to_excel(writer, index=False, sheet_name=t("sheet_name"))
-        worksheet = writer.sheets[t("sheet_name")]
+        export_df.to_excel(writer, index=False, sheet_name=sheet_name)
+        worksheet = writer.sheets[sheet_name]
         for idx, column in enumerate(export_df.columns, start=1):
             max_len = max([len(str(column))] + [len(str(value)) for value in export_df[column].head(200)])
             col_letter = worksheet.cell(row=1, column=idx).column_letter
             worksheet.column_dimensions[col_letter].width = min(max_len + 2, 50)
 
     return buffer.getvalue()
+
+
+def _sidebar_excel_cache_key() -> str | None:
+    df = st.session_state.get("citizens_df")
+    if df is None or df.empty:
+        return None
+    list_key = st.session_state.get("list_key") or "unknown"
+    return f"{list_key}:{len(df)}"
+
+
+def sidebar_excel_bytes() -> bytes:
+    """Generér Excel-eksport én gang pr. liste og genbrug ved efterfølgende renders."""
+    cache_key = _sidebar_excel_cache_key()
+    if cache_key is None:
+        return b""
+    if st.session_state.get("_sidebar_excel_key") != cache_key:
+        st.session_state._sidebar_excel_bytes = to_excel_bytes(st.session_state.citizens_df)
+        st.session_state._sidebar_excel_key = cache_key
+    return st.session_state.get("_sidebar_excel_bytes") or b""
 
 
 # ---------------------------------------------------------------------------
@@ -1847,7 +2105,7 @@ def create_user_account(username: str, password: str, role: str = "user") -> tup
     return True, t("admin_user_created", username=clean_username)
 
 
-def deactivate_user_account(username: str) -> tuple[bool, str]:
+def deactivate_user_account(username: str, *, delete_data: bool = False) -> tuple[bool, str]:
     if username.strip().lower() == current_username().lower():
         return False, t("admin_cannot_deactivate_self")
     users = load_users()
@@ -1862,6 +2120,9 @@ def deactivate_user_account(username: str) -> tuple[bool, str]:
         return False, t("admin_user_invalid", min=MIN_PASSWORD_LENGTH)
     save_users(users)
     revoke_user_sessions(username)
+    if delete_data:
+        delete_user_data(username)
+        return True, t("admin_user_deactivated_data_deleted", username=username)
     return True, t("admin_user_deactivated", username=username)
 
 
@@ -2014,23 +2275,34 @@ def load_audit_log() -> list[dict]:
     if data is None:
         return []
     if isinstance(data, dict) and isinstance(data.get("entries"), list):
-        return [entry for entry in data["entries"] if isinstance(entry, dict)]
-    if isinstance(data, list):
-        return [entry for entry in data if isinstance(entry, dict)]
-    return []
+        entries = [entry for entry in data["entries"] if isinstance(entry, dict)]
+    elif isinstance(data, list):
+        entries = [entry for entry in data if isinstance(entry, dict)]
+    else:
+        return []
+
+    sanitized = [_sanitize_audit_entry(entry) for entry in entries]
+    if sanitized != entries:
+        save_audit_log(sanitized)
+    return sanitized
 
 
 def save_audit_log(entries: list[dict]) -> None:
-    trimmed = entries[-MAX_AUDIT_ENTRIES:]
+    trimmed = [_sanitize_audit_entry(entry) for entry in entries[-MAX_AUDIT_ENTRIES:]]
     _save_json_file(AUDIT_LOG_PATH, {"entries": trimmed})
+
+
+def _sanitize_audit_entry(entry: dict) -> dict:
+    return {
+        key: value
+        for key, value in entry.items()
+        if key not in {"citizen_name", "citizen_address", "citizen_phone"}
+    }
 
 
 def append_audit_log(
     *,
     citizen_id: str,
-    citizen_name: str,
-    citizen_address: str,
-    citizen_phone: str,
     old_status: str,
     new_status: str,
     list_key: str | None,
@@ -2041,9 +2313,6 @@ def append_audit_log(
         "username": current_username(),
         "role": current_user().get("role", "user") if current_user() else "user",
         "citizen_id": citizen_id,
-        "citizen_name": repair_text(citizen_name),
-        "citizen_address": repair_text(citizen_address),
-        "citizen_phone": repair_text(citizen_phone),
         "old_status": old_status,
         "new_status": new_status,
         "list_key": list_key,
@@ -2058,6 +2327,209 @@ def latest_audit_for_citizen(citizen_id: str) -> dict | None:
         if entry.get("citizen_id") == citizen_id:
             return entry
     return None
+
+
+def configured_retention_months() -> int:
+    settings = load_app_settings()
+    raw = settings.get("data_retention_months")
+    if raw is not None:
+        try:
+            return max(MIN_RETENTION_MONTHS, min(MAX_RETENTION_MONTHS, int(raw)))
+        except (TypeError, ValueError):
+            pass
+    return DEFAULT_RETENTION_MONTHS
+
+
+def _entry_activity_date(entry: dict) -> datetime:
+    updated_at = repair_text(entry.get("updated_at", ""))
+    if updated_at:
+        try:
+            return datetime.fromisoformat(updated_at)
+        except ValueError:
+            pass
+    date_str = repair_text(entry.get("Status dato", ""))
+    if date_str:
+        try:
+            return datetime.strptime(date_str, "%d-%m-%Y")
+        except ValueError:
+            pass
+    return datetime.min
+
+
+def _history_entry_matches_row(entry: dict, row: pd.Series) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    decoded = decrypt_dict_pii(entry)
+    return master_match_score(row, decoded) >= 2
+
+
+def _register_entry_matches_row(entry: dict, row: pd.Series) -> bool:
+    decoded = decrypt_dict_pii(entry) if any(str(entry.get(field, "")).startswith(PII_ENC_PREFIX) for field in PII_FIELDS) else entry
+    return master_match_score(row, decoded) >= 2
+
+
+def delete_user_data(username: str) -> None:
+    user_dir = USER_DATA_ROOT / safe_username(username)
+    if user_dir.exists():
+        shutil.rmtree(user_dir)
+
+
+def erase_citizen_data(row: pd.Series) -> None:
+    """Fjern én borger fra alle lagre (Art. 17 — ret til sletning)."""
+    target_id = str(row["_id"])
+    history_keys = set(history_keys_for_row(row))
+
+    with _data_file_lock(shared=False):
+        register_payload = _read_json_raw(MASTER_REFERENCE_REGISTER_PATH, {"cleared": False, "entries": []})
+        register_state = _parse_master_register_payload(register_payload)
+        register = register_state["entries"]  # type: ignore[assignment]
+        if isinstance(register, list):
+            filtered_register = [entry for entry in register if not _register_entry_matches_row(entry, row)]
+            if len(filtered_register) != len(register):
+                _write_text_atomic(
+                    MASTER_REFERENCE_REGISTER_PATH,
+                    json.dumps({"cleared": False, "entries": filtered_register}, ensure_ascii=False, indent=2) + "\n",
+                )
+
+        history = _read_json_raw(STATUS_HISTORY_PATH, {})
+        if isinstance(history, dict):
+            filtered_history = {
+                key: value
+                for key, value in history.items()
+                if key not in history_keys and not _history_entry_matches_row(value, row)
+            }
+            if len(filtered_history) != len(history):
+                _write_text_atomic(
+                    STATUS_HISTORY_PATH,
+                    json.dumps(filtered_history, ensure_ascii=False, indent=2) + "\n",
+                )
+
+        audit_payload = _read_json_raw(AUDIT_LOG_PATH, {"entries": []})
+        if isinstance(audit_payload, dict) and isinstance(audit_payload.get("entries"), list):
+            audit_entries = audit_payload["entries"]
+        elif isinstance(audit_payload, list):
+            audit_entries = audit_payload
+        else:
+            audit_entries = []
+        filtered_audit = [
+            _sanitize_audit_entry(entry)
+            for entry in audit_entries
+            if isinstance(entry, dict) and entry.get("citizen_id") != target_id
+        ]
+        if len(filtered_audit) != len(audit_entries):
+            _write_text_atomic(
+                AUDIT_LOG_PATH,
+                json.dumps({"entries": filtered_audit[-MAX_AUDIT_ENTRIES:]}, ensure_ascii=False, indent=2) + "\n",
+            )
+
+        if USER_DATA_ROOT.exists():
+            for user_dir in USER_DATA_ROOT.iterdir():
+                if not user_dir.is_dir():
+                    continue
+                owner = user_dir.name
+                for json_path in user_dir.glob("*.json"):
+                    if json_path.name in ("active_session.json", "preferences.json"):
+                        continue
+                    data = _load_json_file(json_path, {})
+                    if isinstance(data, dict) and target_id in data:
+                        del data[target_id]
+                        _save_json_file(json_path, data)
+
+                active_df = _read_active_list_file(owner)
+                if active_df is not None and not active_df.empty:
+                    if "_id" not in active_df.columns:
+                        active_df = active_df.copy()
+                        active_df["_id"] = active_df.apply(citizen_id, axis=1)
+                    active_df = active_df[active_df["_id"] != target_id].reset_index(drop=True)
+                    if active_df.empty:
+                        for path in (user_active_list_parquet(owner), user_active_list_csv(owner)):
+                            if path.exists():
+                                path.unlink()
+                    else:
+                        save_active_list(active_df, username=owner)
+
+    df = st.session_state.get("citizens_df")
+    if isinstance(df, pd.DataFrame) and not df.empty and "_id" in df.columns:
+        if target_id in df["_id"].values:
+            updated = df[df["_id"] != target_id].reset_index(drop=True)
+            st.session_state.citizens_df = updated if not updated.empty else None
+            if updated.empty:
+                clear_active_list()
+            else:
+                save_active_list(updated)
+
+
+def apply_data_retention() -> int:
+    months = configured_retention_months()
+    if months <= 0:
+        return 0
+    cutoff = datetime.now() - timedelta(days=months * 30)
+    purged = 0
+    for entry in list(load_master_register()):
+        if _entry_activity_date(entry) >= cutoff:
+            continue
+        row = pd.Series(
+            {
+                "Navn": entry.get("Navn", ""),
+                "Adresse": entry.get("Adresse", ""),
+                "Telefonnummer": entry.get("Telefonnummer", ""),
+                "Status": entry.get("Status", DEFAULT_STATUS),
+                "Status dato": entry.get("Status dato", ""),
+                "Ring igen dato": entry.get("Ring igen dato", ""),
+            }
+        )
+        row["_id"] = citizen_id(row)
+        erase_citizen_data(row)
+        purged += 1
+    return purged
+
+
+def collect_citizen_data_export(row: pd.Series) -> dict:
+    """Indsaml alle gemte data om én borger (Art. 15/20 — indsigt og portabilitet)."""
+    target_id = str(row["_id"])
+    history = load_status_history()
+    history_entries = {
+        key: value
+        for key, value in history.items()
+        if key in history_keys_for_row(row) or _history_entry_matches_row(value, row)
+    }
+    audit_entries = [entry for entry in load_audit_log() if entry.get("citizen_id") == target_id]
+    master_entry = find_master_register_match(row, load_master_register())
+    return {
+        "exported_at": datetime.now().isoformat(timespec="seconds"),
+        "citizen_id": target_id,
+        "personal_data": {
+            "Navn": repair_text(row["Navn"]),
+            "Adresse": repair_text(row["Adresse"]),
+            "Telefonnummer": repair_text(row["Telefonnummer"]),
+        },
+        "status": {
+            "Status": repair_text(row.get("Status", DEFAULT_STATUS)),
+            "Status dato": repair_text(row.get("Status dato", "")),
+            "Ring igen dato": repair_text(row.get("Ring igen dato", "")),
+        },
+        "master_register": master_entry,
+        "history": history_entries,
+        "audit_log": audit_entries,
+    }
+
+
+def build_citizen_label_map() -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for entry in load_master_register():
+        row = pd.Series(
+            {
+                "Navn": entry.get("Navn", ""),
+                "Adresse": entry.get("Adresse", ""),
+                "Telefonnummer": entry.get("Telefonnummer", ""),
+            }
+        )
+        labels[citizen_id(row)] = repair_text(entry.get("Navn", "")) or str(citizen_id(row))
+    df = st.session_state.get("citizens_df")
+    if isinstance(df, pd.DataFrame) and not df.empty and "_id" in df.columns:
+        for _, row in df.iterrows():
+            labels[str(row["_id"])] = repair_text(row["Navn"])
+    return labels
 
 
 def verify_admin_master_delete(password: str) -> bool:
@@ -2084,29 +2556,73 @@ def load_app_settings() -> dict:
 
 def save_app_settings(**updates: object) -> None:
     settings = load_app_settings()
-    settings.update(updates)
+    for key, value in updates.items():
+        if value is None:
+            settings.pop(key, None)
+        else:
+            settings[key] = value
     _save_json_file(APP_SETTINGS_PATH, settings)
     _chmod_sensitive(APP_SETTINGS_PATH)
 
 
-def configured_session_idle_hours() -> float:
+def configured_session_idle_minutes() -> int:
     settings = load_app_settings()
-    raw = settings.get("session_idle_hours")
-    if raw is not None:
+    raw_minutes = settings.get("session_idle_minutes")
+    if raw_minutes is not None:
         try:
-            return max(MIN_SESSION_IDLE_HOURS, min(MAX_SESSION_IDLE_HOURS, float(raw)))
+            return max(MIN_SESSION_IDLE_MINUTES, min(MAX_SESSION_IDLE_MINUTES, int(raw_minutes)))
         except (TypeError, ValueError):
             pass
-    env_raw = os.environ.get("BORGERLISTE_SESSION_IDLE_HOURS", str(DEFAULT_SESSION_IDLE_HOURS)).strip()
-    try:
-        hours = float(env_raw)
-    except ValueError:
-        hours = float(DEFAULT_SESSION_IDLE_HOURS)
-    return max(MIN_SESSION_IDLE_HOURS, min(MAX_SESSION_IDLE_HOURS, hours))
+
+    raw_hours = settings.get("session_idle_hours")
+    if raw_hours is not None:
+        try:
+            minutes = int(float(raw_hours) * 60)
+            return max(MIN_SESSION_IDLE_MINUTES, min(MAX_SESSION_IDLE_MINUTES, minutes))
+        except (TypeError, ValueError):
+            pass
+
+    env_minutes = os.environ.get("BORGERLISTE_SESSION_IDLE_MINUTES", "").strip()
+    if env_minutes:
+        try:
+            minutes = int(float(env_minutes))
+            return max(MIN_SESSION_IDLE_MINUTES, min(MAX_SESSION_IDLE_MINUTES, minutes))
+        except ValueError:
+            pass
+
+    env_hours = os.environ.get("BORGERLISTE_SESSION_IDLE_HOURS", "").strip()
+    if env_hours:
+        try:
+            minutes = int(float(env_hours) * 60)
+            return max(MIN_SESSION_IDLE_MINUTES, min(MAX_SESSION_IDLE_MINUTES, minutes))
+        except ValueError:
+            pass
+
+    return DEFAULT_SESSION_IDLE_MINUTES
 
 
 def session_idle_timeout_seconds() -> int:
-    return max(3600, int(configured_session_idle_hours() * 3600))
+    return max(60, configured_session_idle_minutes() * 60)
+
+
+SESSION_IDLE_POLL_SECONDS = 15
+
+
+@st.fragment(run_every=SESSION_IDLE_POLL_SECONDS)
+def session_idle_watchdog() -> None:
+    """Tjek session udløb i baggrunden uden at genindlæse hele siden."""
+    if not st.session_state.get("authenticated"):
+        return
+    token = st.session_state.get("auth_token") or _session_cookie_token()
+    if not token:
+        return
+    st.session_state.auth_token = str(token)
+    account = validate_persistent_session(str(token), touch=False)
+    if account is not None:
+        return
+    logout_user()
+    st.session_state.session_expired_notice = True
+    st.rerun()
 
 
 def session_max_age_seconds() -> int:
@@ -2322,10 +2838,13 @@ def ensure_auth_cookie_synced() -> None:
 
 
 def logout_user() -> None:
+    username = current_username() if current_user() else None
+    list_key = st.session_state.get("list_key")
     token = st.session_state.get("auth_token")
     if token:
         revoke_persistent_session(str(token))
     clear_persistent_session_cookie()
+    clear_active_list(username=username, list_key=list_key)
     st.session_state.authenticated = False
     st.session_state.current_user = None
     st.session_state.auth_token = None
@@ -2333,9 +2852,6 @@ def logout_user() -> None:
     st.session_state._cookie_init_done = False
     st.session_state.active_page = "borgerliste"
     st.session_state.user_data_loaded_for = None
-    st.session_state.citizens_df = None
-    st.session_state.list_key = None
-    st.session_state.source_filename = None
 
 
 def _logo_base64() -> str:
@@ -2454,7 +2970,7 @@ def render_login() -> bool:
         with st.container(border=True):
             st.markdown(f"### {t('login_title')}")
             st.caption(t("login_caption"))
-            st.caption(t("session_valid_for", hours=int(configured_session_idle_hours())))
+            st.caption(t("session_valid_for", minutes=configured_session_idle_minutes()))
 
             with st.form("login_form"):
                 username = st.text_input(t("login_username"))
@@ -2505,6 +3021,11 @@ def finalize_sidebar_controls(*, show_pin: bool) -> None:
     )
 
 
+def finish_page(*, show_pin: bool) -> None:
+    finalize_sidebar_controls(show_pin=show_pin)
+    session_idle_watchdog()
+
+
 def render_page_navigation() -> None:
     render_sidebar_pin_bridge()
     current_page = st.session_state.get("active_page", "borgerliste")
@@ -2524,6 +3045,14 @@ def render_page_navigation() -> None:
         key="nav_account",
     ):
         st.session_state.active_page = "account"
+        st.rerun()
+    if st.sidebar.button(
+        t("nav_privacy"),
+        use_container_width=True,
+        type="primary" if current_page == "privacy" else "secondary",
+        key="nav_privacy",
+    ):
+        st.session_state.active_page = "privacy"
         st.rerun()
     st.sidebar.markdown('<div class="sidebar-divider-spacer"></div>', unsafe_allow_html=True)
 
@@ -2562,34 +3091,34 @@ def render_profile_section() -> None:
 
 def render_admin_settings_section() -> None:
     st.markdown(f"#### {t('admin_session_title')}")
-    current_hours = int(configured_session_idle_hours())
-    st.caption(t("admin_session_current", hours=current_hours))
+    current_minutes = configured_session_idle_minutes()
+    st.caption(t("admin_session_current", minutes=current_minutes))
     st.caption(t("admin_session_idle_help"))
 
     with st.form("admin_session_settings_form"):
-        idle_hours = st.number_input(
+        idle_minutes = st.number_input(
             t("admin_session_idle_label"),
-            min_value=MIN_SESSION_IDLE_HOURS,
-            max_value=MAX_SESSION_IDLE_HOURS,
-            value=current_hours,
+            min_value=MIN_SESSION_IDLE_MINUTES,
+            max_value=MAX_SESSION_IDLE_MINUTES,
+            value=current_minutes,
             step=1,
         )
         submitted = st.form_submit_button(t("admin_session_save"), use_container_width=True)
         if submitted:
             try:
-                hours = int(idle_hours)
+                minutes = int(idle_minutes)
             except (TypeError, ValueError):
-                hours = -1
-            if not MIN_SESSION_IDLE_HOURS <= hours <= MAX_SESSION_IDLE_HOURS:
+                minutes = -1
+            if not MIN_SESSION_IDLE_MINUTES <= minutes <= MAX_SESSION_IDLE_MINUTES:
                 st.error(
                     t(
                         "admin_session_idle_invalid",
-                        min=MIN_SESSION_IDLE_HOURS,
-                        max=MAX_SESSION_IDLE_HOURS,
+                        min=MIN_SESSION_IDLE_MINUTES,
+                        max=MAX_SESSION_IDLE_MINUTES,
                     )
                 )
             else:
-                save_app_settings(session_idle_hours=hours)
+                save_app_settings(session_idle_minutes=minutes, session_idle_hours=None)
                 st.success(t("admin_session_idle_saved"))
                 st.rerun()
 
@@ -2625,28 +3154,35 @@ def render_admin_users_section() -> None:
                 st.caption(f"{t('account_created_label')}: {user['created_at']}")
 
             if active and username != current_username():
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button(t("admin_deactivate"), key=f"deactivate_{username}", use_container_width=True):
-                        ok, message = deactivate_user_account(username)
-                        if ok:
-                            st.toast(message, icon="✅")
-                            st.rerun()
-                        st.error(message)
-                with col2:
-                    with st.expander(t("admin_reset_password"), expanded=False):
-                        with st.form(f"reset_password_{username}", clear_on_submit=True):
-                            new_password = st.text_input(
-                                t("admin_reset_password_for", username=username),
-                                type="password",
-                                key=f"reset_pw_{username}",
-                            )
-                            if st.form_submit_button(t("admin_reset_password"), use_container_width=True):
-                                ok, message = admin_reset_user_password(username, new_password)
-                                if ok:
-                                    st.success(message)
-                                else:
-                                    st.error(message)
+                with st.expander(t("admin_reset_password"), expanded=False):
+                    with st.form(f"reset_password_{username}", clear_on_submit=True):
+                        new_password = st.text_input(
+                            t("admin_reset_password_for", username=username),
+                            type="password",
+                            key=f"reset_pw_{username}",
+                        )
+                        if st.form_submit_button(t("admin_reset_password"), use_container_width=True):
+                            ok, message = admin_reset_user_password(username, new_password)
+                            if ok:
+                                st.success(message)
+                            else:
+                                st.error(message)
+
+                delete_data = st.checkbox(
+                    t("admin_deactivate_delete_data"),
+                    key=f"delete_data_{username}",
+                )
+                if st.button(
+                    t("admin_deactivate"),
+                    key=f"deactivate_{username}",
+                    use_container_width=True,
+                    type="secondary",
+                ):
+                    ok, message = deactivate_user_account(username, delete_data=delete_data)
+                    if ok:
+                        st.toast(message, icon="✅")
+                        st.rerun()
+                    st.error(message)
             elif active and username == current_username():
                 st.caption(t("admin_cannot_deactivate_self"))
 
@@ -2673,7 +3209,78 @@ def render_admin_master_section() -> None:
                 st.error(t("master_delete_password_error"))
 
 
-def render_audit_log_section() -> None:
+def render_gdpr_privacy_section() -> None:
+    st.markdown(t("gdpr_text"))
+    st.markdown(t("gdpr_purpose"))
+    st.markdown(t("gdpr_legal_basis"))
+    st.markdown(t("gdpr_data_types"))
+    st.markdown(t("gdpr_rights"))
+    st.markdown(t("gdpr_retention_info"))
+    st.markdown(t("gdpr_security_info"))
+    st.markdown(t("gdpr_shared_register"))
+    st.markdown(t("gdpr_contact"))
+
+
+def render_user_activity_section() -> None:
+    st.markdown(f"#### {t('user_audit_title')}")
+    st.caption(t("user_audit_caption"))
+    username = current_username()
+    entries = [entry for entry in load_audit_log() if entry.get("username") == username]
+    if not entries:
+        st.info(t("admin_audit_empty"))
+        return
+
+    labels = build_citizen_label_map()
+    rows = []
+    for entry in reversed(entries[-500:]):
+        citizen_id = str(entry.get("citizen_id", ""))
+        rows.append(
+            {
+                t("admin_audit_col_time"): entry.get("timestamp", ""),
+                t("admin_audit_col_citizen"): labels.get(citizen_id, citizen_id),
+                t("admin_audit_col_from"): status_label(str(entry.get("old_status", "")), short=True),
+                t("admin_audit_col_to"): status_label(str(entry.get("new_status", "")), short=True),
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def render_admin_gdpr_section() -> None:
+    st.markdown(f"#### {t('admin_retention_title')}")
+    current_months = configured_retention_months()
+    if current_months <= 0:
+        st.caption(t("admin_retention_disabled"))
+    else:
+        st.caption(t("admin_retention_current", months=current_months))
+
+    with st.form("admin_retention_form"):
+        months = st.number_input(
+            t("admin_retention_label"),
+            min_value=MIN_RETENTION_MONTHS,
+            max_value=MAX_RETENTION_MONTHS,
+            value=current_months,
+            step=1,
+            help=t("admin_retention_help"),
+        )
+        submitted = st.form_submit_button(t("admin_session_save"), use_container_width=True)
+        if submitted:
+            try:
+                value = int(months)
+            except (TypeError, ValueError):
+                value = -1
+            if not MIN_RETENTION_MONTHS <= value <= MAX_RETENTION_MONTHS:
+                st.error(t("admin_retention_invalid", min=MIN_RETENTION_MONTHS, max=MAX_RETENTION_MONTHS))
+            else:
+                save_app_settings(data_retention_months=value)
+                st.session_state.retention_applied = False
+                st.success(t("admin_retention_saved"))
+                st.rerun()
+
+    st.markdown(f"#### {t('admin_gdpr_processing_title')}")
+    st.markdown(t("admin_gdpr_processing_body"))
+
+
+def render_audit_log_section(*, admin_view: bool = True) -> None:
     st.markdown(f"#### {t('admin_audit_title')}")
     st.caption(t("admin_audit_caption"))
     entries = load_audit_log()
@@ -2694,23 +3301,24 @@ def render_audit_log_section() -> None:
     filtered = entries
     if filter_user != t("admin_audit_all_users"):
         filtered = [entry for entry in filtered if entry.get("username") == filter_user]
+    labels = build_citizen_label_map()
     if filter_citizen.strip():
         needle = filter_citizen.strip().lower()
         filtered = [
             entry
             for entry in filtered
-            if needle in str(entry.get("citizen_name", "")).lower()
-            or needle in str(entry.get("citizen_address", "")).lower()
-            or needle in str(entry.get("citizen_phone", "")).lower()
+            if needle in labels.get(str(entry.get("citizen_id", "")), "").lower()
+            or needle in str(entry.get("citizen_id", "")).lower()
         ]
 
     rows = []
     for entry in reversed(filtered[-500:]):
+        citizen_id = str(entry.get("citizen_id", ""))
         rows.append(
             {
                 t("admin_audit_col_time"): entry.get("timestamp", ""),
                 t("admin_audit_col_user"): entry.get("username", ""),
-                t("admin_audit_col_citizen"): entry.get("citizen_name", ""),
+                t("admin_audit_col_citizen"): labels.get(citizen_id, citizen_id),
                 t("admin_audit_col_from"): status_label(str(entry.get("old_status", "")), short=True),
                 t("admin_audit_col_to"): status_label(str(entry.get("new_status", "")), short=True),
             }
@@ -2718,9 +3326,17 @@ def render_audit_log_section() -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+def render_privacy_page() -> None:
+    st.title(t("gdpr_title"))
+    render_gdpr_privacy_section()
+
+
 def render_account_page() -> None:
     st.title(t("account_title"))
-    tab_labels = [t("account_profile_tab")]
+    if purged := st.session_state.pop("retention_purged_count", None):
+        st.info(t("admin_retention_purged", count=purged))
+
+    tab_labels = [t("account_profile_tab"), t("account_activity_tab")]
     if is_admin():
         tab_labels.extend(
             [
@@ -2728,21 +3344,26 @@ def render_account_page() -> None:
                 t("account_admin_settings_tab"),
                 t("account_admin_master_tab"),
                 t("account_admin_audit_tab"),
+                t("account_admin_gdpr_tab"),
             ]
         )
 
     tabs = st.tabs(tab_labels)
     with tabs[0]:
         render_profile_section()
+    with tabs[1]:
+        render_user_activity_section()
     if is_admin():
-        with tabs[1]:
-            render_admin_users_section()
         with tabs[2]:
-            render_admin_settings_section()
+            render_admin_users_section()
         with tabs[3]:
-            render_admin_master_section()
+            render_admin_settings_section()
         with tabs[4]:
+            render_admin_master_section()
+        with tabs[5]:
             render_audit_log_section()
+        with tabs[6]:
+            render_admin_gdpr_section()
 
 
 # ---------------------------------------------------------------------------
@@ -4253,6 +4874,8 @@ def init_session_state() -> None:
         "language": "da",
         "preferences_loaded": False,
         "sidebar_pinned": False,
+        "retention_applied": False,
+        "retention_purged_count": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -4390,13 +5013,28 @@ def handle_file_upload(uploaded) -> bool:
         st.session_state.filter_signature = None
         st.session_state.show_uploader = False
         st.session_state.session_restored = False
+        st.session_state.pop("_sidebar_excel_key", None)
+        st.session_state.pop("_sidebar_excel_bytes", None)
         save_state(key, dataframe_to_state(full_df))
         save_active_list(full_df)
         maybe_sync_master_from_all_user_data(force=True)
         return True
-    except Exception:
+    except Exception as exc:
+        st.session_state._upload_error_detail = str(exc)
         st.error(t("upload_error"))
         return False
+
+
+def _upload_signature(uploaded) -> str:
+    size = getattr(uploaded, "size", None)
+    if size is None:
+        try:
+            uploaded.seek(0, os.SEEK_END)
+            size = uploaded.tell()
+            uploaded.seek(0)
+        except Exception:
+            size = 0
+    return f"{uploaded.name}:{size}"
 
 
 def render_upload_section() -> None:
@@ -4430,10 +5068,30 @@ def render_upload_section() -> None:
                 t("upload_browse"),
                 type=["csv", "xlsx", "xls"],
                 label_visibility="collapsed",
+                key="borgerliste_file_uploader",
             )
-            if uploaded is not None and handle_file_upload(uploaded):
-                st.success(t("upload_success", count=len(st.session_state.citizens_df)))
-                st.rerun()
+            if uploaded is None:
+                uploaded = st.session_state.get("borgerliste_file_uploader")
+            if uploaded is not None:
+                signature = _upload_signature(uploaded)
+                needs_upload = st.session_state.get("_last_upload_sig") != signature
+                if not needs_upload and (
+                    st.session_state.citizens_df is None or st.session_state.citizens_df.empty
+                ):
+                    st.session_state.pop("_last_upload_sig", None)
+                    needs_upload = True
+                if needs_upload:
+                    if handle_file_upload(uploaded):
+                        st.session_state._last_upload_sig = signature
+                        st.rerun()
+                    else:
+                        st.session_state.pop("_last_upload_sig", None)
+            else:
+                st.session_state.pop("_last_upload_sig", None)
+                st.session_state.pop("_upload_error_detail", None)
+
+            if detail := st.session_state.get("_upload_error_detail"):
+                st.caption(detail)
 
             if list_loaded and st.button(t("upload_keep_current"), use_container_width=True):
                 st.session_state.show_uploader = False
@@ -4466,9 +5124,6 @@ def render_sidebar_content() -> None:
             st.rerun()
         st.sidebar.markdown('<div class="sidebar-divider-spacer"></div>', unsafe_allow_html=True)
 
-    with st.sidebar.expander(t("gdpr_title"), expanded=False):
-        st.markdown(t("gdpr_text"))
-
     list_loaded = st.session_state.citizens_df is not None and not st.session_state.citizens_df.empty
     if not list_loaded:
         return
@@ -4486,7 +5141,7 @@ def render_sidebar_content() -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     st.sidebar.download_button(
         label=t("export_excel"),
-        data=to_excel_bytes(st.session_state.citizens_df),
+        data=sidebar_excel_bytes(),
         file_name=f"{export_name}_opdateret_{timestamp}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
@@ -4557,9 +5212,6 @@ def persist_citizen_status_change(
         "username": current_username(),
         "role": current_user().get("role", "user") if current_user() else "user",
         "citizen_id": str(updated_row["_id"]),
-        "citizen_name": repair_text(str(updated_row["Navn"])),
-        "citizen_address": repair_text(str(updated_row["Adresse"])),
-        "citizen_phone": repair_text(str(updated_row["Telefonnummer"])),
         "old_status": old_status,
         "new_status": str(updated_row["Status"]),
         "list_key": list_key,
@@ -4668,6 +5320,34 @@ def render_citizen_card(row: pd.Series) -> None:
         if row["Ring igen dato"]:
             st.caption(t("call_again_date", date=row["Ring igen dato"]))
 
+        with st.expander(t("gdpr_citizen_title"), expanded=False):
+            export_payload = collect_citizen_data_export(row)
+            st.download_button(
+                t("gdpr_export_citizen"),
+                data=json.dumps(export_payload, ensure_ascii=False, indent=2).encode("utf-8"),
+                file_name=t("gdpr_export_filename", citizen_id=str(row["_id"])),
+                mime="application/json",
+                key=f"export_{row['_id']}",
+                use_container_width=True,
+            )
+            confirm_key = f"erase_confirm_{row['_id']}"
+            if st.session_state.get(confirm_key):
+                st.warning(t("gdpr_erase_warning"))
+                col_cancel, col_confirm = st.columns(2)
+                with col_cancel:
+                    if st.button(t("gdpr_erase_cancel"), key=f"erase_cancel_{row['_id']}", use_container_width=True):
+                        st.session_state.pop(confirm_key, None)
+                        st.rerun()
+                with col_confirm:
+                    if st.button(t("gdpr_erase_confirm"), key=f"erase_confirm_btn_{row['_id']}", use_container_width=True):
+                        erase_citizen_data(row)
+                        st.session_state.pop(confirm_key, None)
+                        st.toast(t("gdpr_erase_done"), icon="✅")
+                        st.rerun()
+            elif st.button(t("gdpr_erase_citizen"), key=f"erase_{row['_id']}", use_container_width=True):
+                st.session_state[confirm_key] = True
+                st.rerun()
+
 
 def render_citizen_list(page_slice: pd.DataFrame) -> None:
     if page_slice.empty:
@@ -4702,31 +5382,44 @@ def main() -> None:
             st.markdown(f"**{t('app_title')}**")
             st.caption(t("app_subtitle"))
         render_sidebar_settings()
-        finalize_sidebar_controls(show_pin=False)
+        finish_page(show_pin=False)
         return
 
     ensure_auth_cookie_synced()
 
     ensure_user_data_loaded()
+    if purged := st.session_state.pop("retention_purged_count", None):
+        st.toast(t("admin_retention_purged", count=purged), icon="ℹ️")
     sync_session_df_with_master()
 
     render_page_navigation()
+
+    df = st.session_state.citizens_df
+    if st.session_state.get("active_page") not in ("account", "privacy") and (df is None or df.empty):
+        st.title(t("app_title"))
+        st.caption(t("app_subtitle"))
+        render_upload_section()
+        df = st.session_state.citizens_df
+        if df is not None and not df.empty:
+            st.rerun()
+        render_sidebar_content()
+        render_sidebar_settings()
+        st.info(t("upload_get_started"))
+        finish_page(show_pin=True)
+        return
+
     render_sidebar_content()
     render_sidebar_settings()
 
     if st.session_state.get("active_page") == "account":
         render_account_page()
         save_active_session_metadata()
-        finalize_sidebar_controls(show_pin=True)
+        finish_page(show_pin=True)
         return
 
-    df = st.session_state.citizens_df
-    if df is None or df.empty:
-        st.title(t("app_title"))
-        st.caption(t("app_subtitle"))
-        render_upload_section()
-        st.info(t("upload_get_started"))
-        finalize_sidebar_controls(show_pin=True)
+    if st.session_state.get("active_page") == "privacy":
+        render_privacy_page()
+        finish_page(show_pin=True)
         return
 
     st.title(t("app_title"))
@@ -4756,7 +5449,7 @@ def main() -> None:
 
     render_citizen_list(filtered_df.iloc[start:end])
     save_active_session_metadata()
-    finalize_sidebar_controls(show_pin=True)
+    finish_page(show_pin=True)
 
 
 if __name__ == "__main__":

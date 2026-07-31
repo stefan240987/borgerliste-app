@@ -10,7 +10,7 @@ from config import (
 from auth import (
     admin_reset_user_password, create_user_account, current_user, current_username,
     deactivate_user_account, get_user_record, is_admin, load_users,
-    role_label, update_user_password, verify_admin_master_delete,
+    role_label, update_user_password, update_user_role, verify_admin_master_delete,
 )
 from i18n import status_label, t
 from licensing import (
@@ -272,6 +272,30 @@ def render_admin_users_section() -> None:
             _render_admin_user_license_controls(username, user)
 
             if active and username != current_username():
+                current_role = str(user.get("role", "user"))
+                role_cols = st.columns([2, 1])
+                with role_cols[0]:
+                    new_role = st.selectbox(
+                        t("admin_change_role"),
+                        USER_ROLES,
+                        index=USER_ROLES.index(current_role) if current_role in USER_ROLES else 0,
+                        format_func=role_label,
+                        key=f"role_{username}",
+                    )
+                with role_cols[1]:
+                    st.write("")
+                    st.write("")
+                    if st.button(
+                        t("admin_change_role_submit"),
+                        key=f"role_save_{username}",
+                        use_container_width=True,
+                    ):
+                        ok, message = update_user_role(username, new_role)
+                        if ok:
+                            st.toast(message, icon="✅")
+                            st.rerun()
+                        st.error(message)
+
                 with st.expander(t("admin_reset_password"), expanded=False):
                     with st.form(f"reset_password_{username}", clear_on_submit=True):
                         new_password = st.text_input(

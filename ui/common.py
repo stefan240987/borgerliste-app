@@ -1,19 +1,189 @@
 from __future__ import annotations
 import html
+import json
 from datetime import datetime
 from pathlib import Path
 import streamlit as st
+import streamlit.components.v1 as components
 from config import LOGO_PATH, PAGE_SIZE_OPTIONS, THEME_ICONS, THEME_OPTIONS
 from auth import (
-    current_session_expires_at, current_user, inject_session_idle_reload_watch,
-    logout_user, role_label,
+    current_session_expires_at, current_user, get_user_record, inject_session_idle_reload_watch,
+    is_admin, logout_user, role_label,
 )
 from i18n import lang, t, theme_help
+from licensing import sidebar_license_badge_text
 from storage import (
     clear_active_list, save_user_preferences, sidebar_excel_bytes,
     apply_saved_user_preferences,
 )
 from ui.styles import inject_sidebar_controls
+
+VALID_PAGES = frozenset({"borgerliste", "account", "privacy"})
+ACCOUNT_TAB_SPECS_BASE: tuple[tuple[str, str], ...] = (
+    ("profile", "account_profile_tab"),
+    ("activity", "account_activity_tab"),
+)
+ACCOUNT_TAB_SPECS_ADMIN: tuple[tuple[str, str], ...] = (
+    ("users", "account_admin_users_tab"),
+    ("settings", "account_admin_settings_tab"),
+    ("master", "account_admin_master_tab"),
+    ("audit", "account_admin_audit_tab"),
+    ("gdpr", "account_admin_gdpr_tab"),
+)
+ADMIN_ONLY_ACCOUNT_TAB_SLUGS = frozenset(slug for slug, _ in ACCOUNT_TAB_SPECS_ADMIN)
+ALL_ACCOUNT_TAB_SLUGS = frozenset(
+    slug for slug, _ in (*ACCOUNT_TAB_SPECS_BASE, *ACCOUNT_TAB_SPECS_ADMIN)
+)
+
+
+def account_tab_specs(*, admin: bool) -> list[tuple[str, str]]:
+    specs = list(ACCOUNT_TAB_SPECS_BASE)
+    if admin:
+        specs.extend(ACCOUNT_TAB_SPECS_ADMIN)
+    return specs
+
+
+def resolve_account_tab_slug(raw: str | None, *, admin: bool) -> str:
+    slug = (raw or "profile").strip().lower()
+    if slug not in ALL_ACCOUNT_TAB_SLUGS:
+        return "profile"
+    if slug in ADMIN_ONLY_ACCOUNT_TAB_SLUGS and not admin:
+        return "profile"
+    return slug
+
+
+def resolve_account_tab_default_label(*, admin: bool) -> str | None:
+    slug = resolve_account_tab_slug(st.session_state.get("account_tab"), admin=admin)
+    for tab_slug, label_key in account_tab_specs(admin=admin):
+        if tab_slug == slug:
+            return t(label_key)
+    return None
+
+
+def _trial_blocked() -> bool:
+    from licensing import is_trial_expired
+
+    user_record = get_user_record(current_user()["username"]) if current_user() else None
+    return bool(user_record and is_trial_expired(user_record))
+
+
+def _resolve_page_from_query(*, trial_blocked: bool) -> str:
+    page = str(st.query_params.get("page", "borgerliste")).strip().lower()
+    if page not in VALID_PAGES:
+        page = "borgerliste"
+    if trial_blocked and page not in ("account", "privacy"):
+        page = "borgerliste"
+    return page
+
+
+def _apply_page_query_param(page: str) -> None:
+    if st.query_params.get("page") != page:
+        st.query_params["page"] = page
+
+
+def _apply_tab_query_param(tab: str | None) -> None:
+    if tab:
+        if st.query_params.get("tab") != tab:
+            st.query_params["tab"] = tab
+    elif "tab" in st.query_params:
+        del st.query_params["tab"]
+
+
+def restore_navigation_from_query_params() -> None:
+    """Gendan active_page og account_tab fra URL efter auth (fx ved F5)."""
+    if not st.session_state.get("authenticated"):
+        return
+    trial_blocked = _trial_blocked()
+    page = _resolve_page_from_query(trial_blocked=trial_blocked)
+    st.session_state.active_page = page
+    if page == "account":
+        admin = is_admin()
+        tab = resolve_account_tab_slug(st.query_params.get("tab"), admin=admin)
+        st.session_state.account_tab = tab
+
+
+def sync_navigation_to_query_params() -> None:
+    """Skriv navigation til URL når session_state afviger (sidebar, logout-path)."""
+    if not st.session_state.get("authenticated"):
+        return
+    trial_blocked = _trial_blocked()
+    page = st.session_state.get("active_page", "borgerliste")
+    if page not in VALID_PAGES:
+        page = "borgerliste"
+    if trial_blocked and page not in ("account", "privacy"):
+        page = "borgerliste"
+    _apply_page_query_param(page)
+    if page == "account":
+        tab = resolve_account_tab_slug(st.session_state.get("account_tab"), admin=is_admin())
+        st.session_state.account_tab = tab
+        _apply_tab_query_param(tab)
+    else:
+        _apply_tab_query_param(None)
+
+
+def navigate_to_page(page: str) -> None:
+    if page not in VALID_PAGES:
+        page = "borgerliste"
+    st.session_state.active_page = page
+    if page == "account":
+        tab = resolve_account_tab_slug(st.session_state.get("account_tab"), admin=is_admin())
+        st.session_state.account_tab = tab
+        _apply_page_query_param(page)
+        _apply_tab_query_param(tab)
+    else:
+        _apply_page_query_param(page)
+        _apply_tab_query_param(None)
+    st.rerun()
+
+
+def navigate_to_account(*, tab: str = "profile") -> None:
+    admin = is_admin()
+    tab = resolve_account_tab_slug(tab, admin=admin)
+    st.session_state.active_page = "account"
+    st.session_state.account_tab = tab
+    _apply_page_query_param("account")
+    _apply_tab_query_param(tab)
+    st.rerun()
+
+
+def inject_account_tab_url_sync(label_to_slug: dict[str, str]) -> None:
+    """Opdater ?tab= i URL ved faneklik uden synlig UI-ændring."""
+    if not label_to_slug or st.session_state.get("_account_tab_sync_injected"):
+        return
+    st.session_state._account_tab_sync_injected = True
+    mapping = json.dumps(label_to_slug, ensure_ascii=False)
+    components.html(
+        f"""<script>
+(function () {{
+  const slugByLabel = {mapping};
+  const doc = window.parent.document;
+  function bindTabs() {{
+    const tabLists = doc.querySelectorAll('[data-testid="stTabs"] [role="tablist"]');
+    tabLists.forEach((tabList) => {{
+      if (tabList.dataset.borgerlisteTabSync === "1") return;
+      tabList.dataset.borgerlisteTabSync = "1";
+      tabList.addEventListener("click", (event) => {{
+        const btn = event.target.closest('[role="tab"]');
+        if (!btn) return;
+        const label = (btn.textContent || "").trim();
+        const slug = slugByLabel[label];
+        if (!slug) return;
+        const url = new URL(window.parent.location.href);
+        if (url.searchParams.get("page") !== "account") return;
+        if (url.searchParams.get("tab") === slug) return;
+        url.searchParams.set("tab", slug);
+        window.parent.history.replaceState({{}}, "", url.toString());
+      }});
+    }});
+  }}
+  bindTabs();
+  const observer = new MutationObserver(bindTabs);
+  observer.observe(doc.body, {{ childList: true, subtree: true }});
+}})();
+</script>""",
+        height=0,
+        width=0,
+    )
 
 
 def render_sidebar_pin_bridge() -> None:
@@ -42,6 +212,7 @@ def finalize_sidebar_controls(*, show_pin: bool) -> None:
 def finish_page(*, show_pin: bool) -> None:
     finalize_sidebar_controls(show_pin=show_pin)
     if st.session_state.get("authenticated"):
+        sync_navigation_to_query_params()
         expires_at = current_session_expires_at()
         if expires_at is not None:
             inject_session_idle_reload_watch(expires_at)
@@ -57,24 +228,21 @@ def render_page_navigation() -> None:
         type="primary" if current_page == "borgerliste" else "secondary",
         key="nav_borgerliste",
     ):
-        st.session_state.active_page = "borgerliste"
-        st.rerun()
+        navigate_to_page("borgerliste")
     if st.sidebar.button(
         t("nav_account"),
         use_container_width=True,
         type="primary" if current_page == "account" else "secondary",
         key="nav_account",
     ):
-        st.session_state.active_page = "account"
-        st.rerun()
+        navigate_to_page("account")
     if st.sidebar.button(
         t("nav_privacy"),
         use_container_width=True,
         type="primary" if current_page == "privacy" else "secondary",
         key="nav_privacy",
     ):
-        st.session_state.active_page = "privacy"
-        st.rerun()
+        navigate_to_page("privacy")
     st.sidebar.markdown('<div class="sidebar-divider-spacer"></div>', unsafe_allow_html=True)
 
 
@@ -120,6 +288,7 @@ def init_session_state() -> None:
         "auth_token": None,
         "cookie_synced_for_token": None,
         "active_page": "borgerliste",
+        "account_tab": "profile",
         "user_data_loaded_for": None,
         "session_expired_notice": False,
         "list_key": None,
@@ -162,10 +331,15 @@ def render_sidebar_settings() -> None:
 def render_sidebar_content() -> None:
     user = current_user()
     if user:
+        badge_text = sidebar_license_badge_text(get_user_record(user["username"]) or user)
+        badge_html = ""
+        if badge_text:
+            badge_html = f'<span class="sidebar-license-badge">{html.escape(badge_text)}</span>'
         st.sidebar.markdown(
             f'<div class="sidebar-user-pill">'
             f'<span class="sidebar-user-name">{html.escape(user["username"])}</span>'
             f'<span class="sidebar-user-role">{html.escape(role_label(str(user.get("role", "user"))))}</span>'
+            f"{badge_html}"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -196,4 +370,3 @@ def render_sidebar_content() -> None:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
     )
-

@@ -858,6 +858,21 @@ html:has(.dark-theme) [data-testid="stSidebar"] {{
     letter-spacing: 0.02em;
 }}
 
+.sidebar-license-badge {{
+    display: inline-block;
+    margin-top: 0.28rem;
+    padding: 0.14rem 0.42rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--app-text-muted, #64748B);
+    background: rgba(100, 116, 139, 0.12);
+    border: 1px solid rgba(100, 116, 139, 0.18);
+    line-height: 1.2;
+    align-self: flex-start;
+}}
+
 .sidebar-divider-spacer {{
     height: 0.55rem;
 }}

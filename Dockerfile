@@ -15,7 +15,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-COPY app.py config.py i18n.py data_io.py storage.py matching.py auth.py setup_and_run.py ./
+COPY app.py config.py i18n.py data_io.py storage.py matching.py auth.py licensing.py setup_and_run.py ./
 COPY ui/ ui/
 COPY assets/ assets/
 COPY .streamlit/ .streamlit/

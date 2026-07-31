@@ -8,6 +8,7 @@ import re
 import secrets
 import shutil
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -22,6 +23,15 @@ from data_io import citizen_id, normalize_phone, repair_text
 from i18n import status_label, t
 
 JsonT = TypeVar("JsonT")
+_lock_state = threading.local()
+
+
+class DataLockTimeoutError(TimeoutError):
+    """Fil-lås på DATA_DIR kunne ikke erhverves inden timeout."""
+
+
+def _data_file_lock_depth() -> int:
+    return int(getattr(_lock_state, "depth", 0))
 
 
 def _auth_current_user():
@@ -36,6 +46,10 @@ def _auth_current_username() -> str:
 
 @contextmanager
 def _data_file_lock(*, shared: bool = False):
+    if _data_file_lock_depth() > 0:
+        yield
+        return
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     try:
         lock_handle = DATA_LOCK_PATH.open("a+", encoding="utf-8")
@@ -45,12 +59,33 @@ def _data_file_lock(*, shared: bool = False):
             "Genstart containeren med det nyeste image, eller kør: "
             f"chown -R 1000:1000 <din-data-mappe>"
         ) from exc
-    with lock_handle:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+
+    lock_type = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+    deadline = time.monotonic() + DATA_LOCK_TIMEOUT_SECONDS
+    acquired = False
+    while time.monotonic() < deadline:
+        try:
+            fcntl.flock(lock_handle.fileno(), lock_type | fcntl.LOCK_NB)
+            acquired = True
+            break
+        except BlockingIOError:
+            time.sleep(0.05)
+
+    if not acquired:
+        lock_handle.close()
+        raise DataLockTimeoutError(
+            t("data_lock_timeout", seconds=DATA_LOCK_TIMEOUT_SECONDS)
+        )
+
+    try:
+        _lock_state.depth = _data_file_lock_depth() + 1
         try:
             yield
         finally:
+            _lock_state.depth = max(0, _data_file_lock_depth() - 1)
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        lock_handle.close()
 
 
 def _write_text_atomic(path: Path, content: str) -> None:
@@ -348,12 +383,16 @@ def load_user_preferences(username: str | None = None) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def save_user_preferences(**updates: object) -> None:
-    if not _auth_current_user():
-        return
-    prefs = load_user_preferences()
+def save_user_preferences(*, username: str | None = None, **updates: object) -> None:
+    if username is None:
+        if not _auth_current_user():
+            return
+        owner = _auth_current_username()
+    else:
+        owner = username
+    prefs = load_user_preferences(owner)
     prefs.update(updates)
-    _save_json_file(user_preferences_path(), prefs)
+    _save_json_file(user_preferences_path(owner), prefs)
 
 
 def apply_saved_user_preferences() -> None:
@@ -1056,4 +1095,52 @@ def configured_session_idle_minutes() -> int:
 
 def session_idle_timeout_seconds() -> int:
     return max(60, configured_session_idle_minutes() * 60)
+
+
+def configured_trial_days() -> int:
+    settings = load_app_settings()
+    raw = settings.get("default_trial_days")
+    if raw is not None:
+        try:
+            return max(MIN_TRIAL_DAYS, min(MAX_TRIAL_DAYS, int(raw)))
+        except (TypeError, ValueError):
+            pass
+
+    env_days = os.environ.get("BORGERLISTE_DEFAULT_TRIAL_DAYS", "").strip()
+    if env_days:
+        try:
+            days = int(float(env_days))
+            return max(MIN_TRIAL_DAYS, min(MAX_TRIAL_DAYS, days))
+        except ValueError:
+            pass
+
+    return DEFAULT_TRIAL_DAYS
+
+
+def trial_system_enabled() -> bool:
+    settings = load_app_settings()
+    if "trial_system_enabled" in settings:
+        return bool(settings.get("trial_system_enabled"))
+
+    env_flag = os.environ.get("BORGERLISTE_TRIAL_ENABLED", "").strip().lower()
+    if env_flag in ("0", "false", "no", "off"):
+        return False
+    if env_flag in ("1", "true", "yes", "on"):
+        return True
+
+    return True
+
+
+def public_signup_enabled() -> bool:
+    settings = load_app_settings()
+    if "public_signup_enabled" in settings:
+        return bool(settings.get("public_signup_enabled"))
+
+    env_flag = os.environ.get("BORGERLISTE_PUBLIC_SIGNUP_ENABLED", "").strip().lower()
+    if env_flag in ("0", "false", "no", "off"):
+        return False
+    if env_flag in ("1", "true", "yes", "on"):
+        return True
+
+    return DEFAULT_PUBLIC_SIGNUP_ENABLED
 

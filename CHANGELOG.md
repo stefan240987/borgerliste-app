@@ -4,6 +4,43 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.4.1] — 2026-07-31 (Opstart rettet)
+
+### Rettet
+
+- **Blank/hængende side** — CookieManager fjernet (gav *unregistered ComponentInstance*); bruger `st.context.cookies` + let JS.
+- **Fil-lås timeout** — `.data.lock` venter ikke længere uendeligt når zombie Streamlit-processer kører.
+
+### Opgradering
+
+```bash
+pkill -f "streamlit run.*borgerliste"
+docker compose -f docker-compose.ghcr.yml up -d --build
+```
+
+---
+
+## [1.4.0] — 2026-07-31 (Login, signup, trial og navigation)
+
+### Tilføjet
+
+- **Login-introside** — informations-side før login-kortet (DigiRehab/Nexus-kontekst).
+- **Selvbetjent signup** — "Opret konto"-fane på login-siden med rate-limiting.
+- **Trial og licens** — prøveperiode for nye brugere, admin-styring, udløbet-skærm og sidebar-badge.
+- **F5-navigation** — side og konto-fane gemmes i URL (`?page=` / `?tab=`) og gendannes ved refresh.
+
+### Bemærk
+
+- Baseret på v1.3.0 (CookieManager og fil-lås uændret) — uden v1.5.8 opstarts-rettelser.
+
+### Opgradering
+
+```bash
+docker compose -f docker-compose.ghcr.yml up -d --build
+```
+
+---
+
 ## [1.3.0] — 2026-07-30 (Modulær refaktor)
 
 ### Ændret

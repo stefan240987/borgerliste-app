@@ -36,9 +36,14 @@ MAX_SESSION_IDLE_MINUTES = 168 * 60
 COOKIE_MANAGER_KEY = "borgerliste_cookie_manager"
 COOKIE_MANAGER_INSTANCE_KEY = "_borgerliste_cookie_manager_instance"
 DATA_LOCK_PATH = DATA_DIR / ".data.lock"
+DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.1"
+DEFAULT_TRIAL_DAYS = 14
+DEFAULT_PUBLIC_SIGNUP_ENABLED = True
+MIN_TRIAL_DAYS = 1
+MAX_TRIAL_DAYS = 365
 SIDEBAR_AUTO_COLLAPSE_SECONDS = 10
 PASSWORD_HASH_ITERATIONS = 120_000
 PII_FIELDS = ("Navn", "Adresse", "Telefonnummer")
@@ -286,6 +291,42 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_session_idle_invalid": "Angiv et helt tal mellem {min} og {max} minutter.",
         "admin_session_current": "Nuværende grænse: {minutes} min. ved inaktivitet.",
         "admin_session_save": "Gem indstilling",
+        "admin_trial_title": "Prøveperiode og licens",
+        "admin_trial_enabled_label": "Trial-system aktiveret",
+        "admin_trial_enabled_help": "Når slået fra, deaktiveres trial-validering for alle brugere.",
+        "admin_trial_days_label": "Standard prøveperiode (dage)",
+        "admin_trial_days_help": "Gælder nye brugere med rollen Bruger.",
+        "admin_trial_days_saved": "Trial-indstillinger gemt.",
+        "admin_trial_days_invalid": "Angiv et helt tal mellem {min} og {max} dage.",
+        "admin_trial_current": "Trial-system: {status}. Standard prøveperiode: {days} dage.",
+        "admin_trial_status_on": "aktiveret",
+        "admin_trial_status_off": "deaktiveret",
+        "account_license_title": "Licens og prøveperiode",
+        "account_license_status": "Status",
+        "account_license_expires": "Udløber",
+        "account_license_days_remaining": "Dage tilbage",
+        "account_license_days_value": "{days} dage",
+        "account_license_expired_on": "Udløbet den {date}",
+        "license_status_paid": "Købt / betalt licens",
+        "license_status_trial": "Prøveperiode",
+        "license_status_expired": "Prøveperiode udløbet",
+        "license_status_admin": "Administrator",
+        "sidebar_license_trial": "Prøve · {days} dage",
+        "sidebar_license_expired": "Prøve udløbet",
+        "trial_expired_title": "Prøveperiode udløbet",
+        "trial_expired_body": (
+            "Din prøveperiode udløb **{date}**. Du kan stadig logge ind, men adgang til "
+            "borgerlisten er midlertidigt blokeret."
+        ),
+        "trial_expired_contact": "Kontakt en administrator for at opgradere til betalt licens.",
+        "trial_expired_go_account": "Gå til Min konto",
+        "admin_user_license_title": "Licens",
+        "admin_user_is_paid": "Betalt licens",
+        "admin_user_trial_ends": "Prøveperiode udløber",
+        "admin_user_extend_trial": "Forlæng prøveperiode",
+        "admin_user_extend_days": "+{days} dage",
+        "admin_user_license_saved": "Licens opdateret for {username}.",
+        "admin_user_license_not_found": "Bruger ikke fundet.",
         "admin_audit_title": "Status-log",
         "admin_audit_caption": "Seneste statusændringer på tværs af brugere.",
         "admin_audit_empty": "Ingen logposter endnu.",
@@ -301,10 +342,33 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "master_delete_admin_only": "Kun administratorer kan slette master-registeret.",
         "master_delete_not_configured": "Kun administratorer kan slette master-registeret.",
         "login_title": "Log ind",
-        "login_caption": "Log ind for at beskytte borgerdata.",
+        "login_tab": "Log ind",
+        "login_hero_subtitle": "Effektiv borgerkontakt og opfølgning på DigiRehab-tilbud",
+        "intro_title": "Velkommen til Borgerliste for DigiRehab",
+        "intro_lead": "Denne applikation er skabt til at gøre opfølgningen på DigiRehab-tilbud hurtig, enkel og overskuelig. I stedet for manuelle lister og Excel-ark giver appen dig et samlet digitalt arbejdsredskab til din borgerkontakt.",
+        "intro_bullet_1": "**Holde hurtigt overblik:** Se præcis hvilke borgere fra Nexus, der mangler afklaring, har takket ja/nej eller skal ringes op igen.",
+        "intro_bullet_2": "**Registrere opkald med ét klik:** Gem status og noter med det samme, så du og dine kolleger aldrig ringer forgæves eller dobbelt.",
+        "intro_bullet_3": "**Sikre et smidigt borgerforløb:** Bevar overblikket over genopkald og aftaler uden risiko for, at borgere overses.",
+        "intro_btn_login": "Log ind",
+        "intro_btn_back": "← Tilbage til information",
+        "login_caption": "Sikker adgang til borger- og kontaktadministration",
         "login_password": "Adgangskode",
         "login_submit": "Log ind",
         "login_error": "Forkert brugernavn eller adgangskode.",
+        "signup_tab": "Opret konto",
+        "signup_title": "Opret konto",
+        "signup_caption": "Start din gratis prøveperiode.",
+        "signup_username_requirements": "Brugernavn: 2–32 tegn. Kun bogstaver, tal, _ og -.",
+        "signup_password_requirements": "Adgangskode: mindst {min} tegn.",
+        "signup_confirm_password": "Bekræft adgangskode",
+        "signup_submit": "Opret konto",
+        "signup_success": "Konto oprettet! Du kan nu logge ind.",
+        "admin_public_signup_label": "Selvbetjent brugeroprettelse",
+        "admin_public_signup_help": "Tillad besøgende at oprette en brugerkonto fra login-siden.",
+        "admin_public_signup_saved": "Indstilling for brugeroprettelse gemt.",
+        "admin_public_signup_current": "Selvbetjent brugeroprettelse: {status}.",
+        "admin_public_signup_status_on": "aktiveret",
+        "admin_public_signup_status_off": "deaktiveret",
         "status_not_contacted": "Ikke kontaktet endnu",
         "status_accepted": "Accepteret tilbud",
         "status_declined": "Afslået tilbud",
@@ -338,6 +402,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "upload_loaded_with_matches": (
             "Indlæst {count} borgere. Genkendte {matched} borgere fra tidligere "
             "registreringer via 2/3-matching."
+        ),
+        "data_lock_timeout": (
+            "Datalageret er låst af en anden proces (timeout efter {seconds}s). "
+            "Stop andre Streamlit-/Docker-instanser og genstart appen."
         ),
     },
     "en": {
@@ -512,6 +580,42 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_session_idle_invalid": "Enter a whole number between {min} and {max} minutes.",
         "admin_session_current": "Current limit: {minutes} min. of inactivity.",
         "admin_session_save": "Save setting",
+        "admin_trial_title": "Trial and licence",
+        "admin_trial_enabled_label": "Trial system enabled",
+        "admin_trial_enabled_help": "When disabled, trial validation is turned off for all users.",
+        "admin_trial_days_label": "Default trial period (days)",
+        "admin_trial_days_help": "Applies to new users with the User role.",
+        "admin_trial_days_saved": "Trial settings saved.",
+        "admin_trial_days_invalid": "Enter a whole number between {min} and {max} days.",
+        "admin_trial_current": "Trial system: {status}. Default trial period: {days} days.",
+        "admin_trial_status_on": "enabled",
+        "admin_trial_status_off": "disabled",
+        "account_license_title": "Licence and trial",
+        "account_license_status": "Status",
+        "account_license_expires": "Expires",
+        "account_license_days_remaining": "Days remaining",
+        "account_license_days_value": "{days} days",
+        "account_license_expired_on": "Expired on {date}",
+        "license_status_paid": "Paid licence",
+        "license_status_trial": "Trial period",
+        "license_status_expired": "Trial expired",
+        "license_status_admin": "Administrator",
+        "sidebar_license_trial": "Trial · {days} days",
+        "sidebar_license_expired": "Trial expired",
+        "trial_expired_title": "Trial period expired",
+        "trial_expired_body": (
+            "Your trial period expired on **{date}**. You can still sign in, but access to "
+            "the citizen list is temporarily blocked."
+        ),
+        "trial_expired_contact": "Contact an administrator to upgrade to a paid licence.",
+        "trial_expired_go_account": "Go to My account",
+        "admin_user_license_title": "Licence",
+        "admin_user_is_paid": "Paid licence",
+        "admin_user_trial_ends": "Trial expires",
+        "admin_user_extend_trial": "Extend trial",
+        "admin_user_extend_days": "+{days} days",
+        "admin_user_license_saved": "Licence updated for {username}.",
+        "admin_user_license_not_found": "User not found.",
         "admin_audit_title": "Status log",
         "admin_audit_caption": "Recent status changes across users.",
         "admin_audit_empty": "No log entries yet.",
@@ -527,10 +631,33 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "master_delete_admin_only": "Only administrators can delete the master register.",
         "master_delete_not_configured": "Only administrators can delete the master register.",
         "login_title": "Sign in",
-        "login_caption": "Sign in to protect citizen data.",
+        "login_tab": "Sign in",
+        "login_hero_subtitle": "Effective citizen contact and follow-up on DigiRehab offers",
+        "intro_title": "Welcome to Borgerliste for DigiRehab",
+        "intro_lead": "This application is designed to make follow-up on DigiRehab offers fast, simple and clear. Instead of manual lists and Excel spreadsheets, the app gives you a unified digital tool for your citizen contact.",
+        "intro_bullet_1": "**Keep a quick overview:** See exactly which citizens from Nexus need clarification, have said yes/no, or need to be called again.",
+        "intro_bullet_2": "**Log calls with one click:** Save status and notes instantly, so you and your colleagues never call in vain or twice.",
+        "intro_bullet_3": "**Ensure a smooth citizen journey:** Keep track of callbacks and appointments without risking that citizens are overlooked.",
+        "intro_btn_login": "Sign in",
+        "intro_btn_back": "← Back to information",
+        "login_caption": "Secure access to citizen and contact administration",
         "login_password": "Password",
         "login_submit": "Sign in",
         "login_error": "Incorrect username or password.",
+        "signup_tab": "Create account",
+        "signup_title": "Create account",
+        "signup_caption": "Start your free trial.",
+        "signup_username_requirements": "Username: 2–32 characters. Letters, numbers, _ and - only.",
+        "signup_password_requirements": "Password: at least {min} characters.",
+        "signup_confirm_password": "Confirm password",
+        "signup_submit": "Create account",
+        "signup_success": "Account created! You can now sign in.",
+        "admin_public_signup_label": "Self-service sign-up",
+        "admin_public_signup_help": "Allow visitors to create a user account from the sign-in page.",
+        "admin_public_signup_saved": "Sign-up setting saved.",
+        "admin_public_signup_current": "Self-service sign-up: {status}.",
+        "admin_public_signup_status_on": "enabled",
+        "admin_public_signup_status_off": "disabled",
         "status_not_contacted": "Not contacted yet",
         "status_accepted": "Offer accepted",
         "status_declined": "Offer declined",
@@ -564,6 +691,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "upload_loaded_with_matches": (
             "Loaded {count} citizens. Matched {matched} citizens from previous "
             "registrations via 2/3 matching."
+        ),
+        "data_lock_timeout": (
+            "The data store is locked by another process (timeout after {seconds}s). "
+            "Stop other Streamlit/Docker instances and restart the app."
         ),
     },
 }

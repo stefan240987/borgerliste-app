@@ -2,18 +2,18 @@ from __future__ import annotations
 import base64
 import hashlib
 import html
+import json
 import os
 import secrets
 from datetime import datetime, timedelta
-import extra_streamlit_components as stx
 import streamlit as st
 import streamlit.components.v1 as components
 from config import *  # noqa: F403
 from i18n import t
 from storage import (
-    _chmod_sensitive, _load_json_file, _save_json_file, clear_active_list, delete_user_data,
-    load_app_settings, save_app_settings, configured_session_idle_minutes,
-    session_idle_timeout_seconds,
+    _chmod_sensitive, _cookie_secure_flag, _load_json_file, _save_json_file, clear_active_list,
+    delete_user_data, load_app_settings, public_signup_enabled, save_app_settings,
+    configured_session_idle_minutes, session_idle_timeout_seconds,
 )
 
 
@@ -151,18 +151,20 @@ def create_user_account(username: str, password: str, role: str = "user") -> tup
     if find_user(clean_username):
         return False, t("admin_user_exists")
 
+    from licensing import build_new_user_license_fields
+
     salt, password_hash = hash_password(password)
     users = load_users()
-    users.append(
-        {
-            "username": clean_username,
-            "salt": salt,
-            "password_hash": password_hash,
-            "role": role,
-            "active": True,
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-        }
-    )
+    new_user: dict = {
+        "username": clean_username,
+        "salt": salt,
+        "password_hash": password_hash,
+        "role": role,
+        "active": True,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    new_user.update(build_new_user_license_fields(role))
+    users.append(new_user)
     save_users(users)
     return True, t("admin_user_created", username=clean_username)
 
@@ -297,7 +299,7 @@ def _save_login_attempts(data: dict[str, dict]) -> None:
     _chmod_sensitive(LOGIN_ATTEMPTS_PATH)
 
 
-def check_login_rate_limit() -> tuple[bool, int]:
+def check_auth_rate_limit(*, action: str = "login") -> tuple[bool, int]:
     client = _client_ip()
     attempts = _load_login_attempts()
     entry = attempts.get(client, {})
@@ -311,7 +313,11 @@ def check_login_rate_limit() -> tuple[bool, int]:
     return True, 0
 
 
-def record_failed_login() -> None:
+def check_login_rate_limit() -> tuple[bool, int]:
+    return check_auth_rate_limit(action="login")
+
+
+def record_failed_auth(*, action: str = "login") -> None:
     client = _client_ip()
     attempts = _load_login_attempts()
     entry = attempts.get(client, {"count": 0})
@@ -324,12 +330,20 @@ def record_failed_login() -> None:
     _save_login_attempts(attempts)
 
 
-def clear_login_attempts() -> None:
+def record_failed_login() -> None:
+    record_failed_auth(action="login")
+
+
+def clear_auth_attempts(*, action: str = "login") -> None:
     client = _client_ip()
     attempts = _load_login_attempts()
     if client in attempts:
         attempts.pop(client, None)
         _save_login_attempts(attempts)
+
+
+def clear_login_attempts() -> None:
+    clear_auth_attempts(action="login")
 
 
 def verify_admin_master_delete(password: str) -> bool:
@@ -342,11 +356,37 @@ def verify_admin_master_delete(password: str) -> bool:
     return verify_password(password, str(user.get("salt", "")), str(user.get("password_hash", "")))
 
 
-def get_cookie_manager() -> stx.CookieManager:
-    """Én CookieManager pr. Streamlit-run — instance-key må ikke matche widget-key."""
-    if COOKIE_MANAGER_INSTANCE_KEY not in st.session_state:
-        st.session_state[COOKIE_MANAGER_INSTANCE_KEY] = stx.CookieManager(key=COOKIE_MANAGER_KEY)
-    return st.session_state[COOKIE_MANAGER_INSTANCE_KEY]
+def _inject_session_cookie_script(*, action: str, token: str = "") -> None:
+    """Sæt eller slet session-cookie uden CookieManager-komponent."""
+    signature = f"{action}|{token}"
+    if st.session_state.get("_session_cookie_script_sig") == signature:
+        return
+    st.session_state._session_cookie_script_sig = signature
+
+    name = SESSION_COOKIE_NAME
+    if action == "set":
+        max_age = session_max_age_seconds()
+        secure = _cookie_secure_flag()
+        secure_js = "true" if secure else "false"
+        script = f"""
+        (function() {{
+            const name = {json.dumps(name)};
+            const value = {json.dumps(token)};
+            const maxAge = {max_age};
+            const secure = {secure_js};
+            let cookie = name + "=" + encodeURIComponent(value) + "; path=/; max-age=" + maxAge + "; SameSite=Lax";
+            if (secure) cookie += "; Secure";
+            window.parent.document.cookie = cookie;
+        }})();
+        """
+    else:
+        script = f"""
+        (function() {{
+            const name = {json.dumps(name)};
+            window.parent.document.cookie = name + "=; path=/; max-age=0; SameSite=Lax";
+        }})();
+        """
+    components.html(f"<script>{script}</script>", height=0, width=0)
 
 
 SESSION_IDLE_POLL_SECONDS = 15
@@ -372,6 +412,9 @@ def current_session_expires_at() -> datetime | None:
 def inject_session_idle_reload_watch(expires_at: datetime) -> None:
     """Genindlæs siden når session udløber — uden Streamlit-fragment polling."""
     expires_ms = int(expires_at.timestamp() * 1000)
+    if st.session_state.get("_idle_reload_expires_ms") == expires_ms:
+        return
+    st.session_state._idle_reload_expires_ms = expires_ms
     poll_ms = SESSION_IDLE_POLL_SECONDS * 1000
     components.html(
         f"""
@@ -403,6 +446,9 @@ def ensure_authenticated_session() -> bool:
     if not st.session_state.get("authenticated"):
         return True
     token = st.session_state.get("auth_token")
+    if not token:
+        if try_restore_auth_from_cookie():
+            token = st.session_state.get("auth_token")
     if not token:
         logout_user()
         st.session_state.session_expired_notice = True
@@ -547,52 +593,30 @@ def validate_persistent_session(token: str, *, touch: bool = True) -> dict | Non
 
 
 def set_persistent_session_cookie(token: str) -> None:
-    expires_at = datetime.now() + timedelta(seconds=session_max_age_seconds())
-    cookie_kwargs: dict[str, object] = {
-        "expires_at": expires_at,
-        "same_site": "lax",
-        "key": "set_session_cookie",
-    }
-    secure = _cookie_secure_flag()
-    if secure is not None:
-        cookie_kwargs["secure"] = secure
-    get_cookie_manager().set(SESSION_COOKIE_NAME, token, **cookie_kwargs)
+    _inject_session_cookie_script(action="set", token=token)
 
 
 def clear_persistent_session_cookie() -> None:
-    try:
-        manager = get_cookie_manager()
-        manager.cookie_manager(
-            method="delete",
-            cookie=SESSION_COOKIE_NAME,
-            key="clear_session_cookie",
-            default=False,
-        )
-        manager.cookies.pop(SESSION_COOKIE_NAME, None)
-    except Exception:
-        pass
+    st.session_state.pop("_session_cookie_script_sig", None)
+    _inject_session_cookie_script(action="clear")
 
 
 def _session_cookie_token() -> str | None:
-    """Læs session-cookie — foretræk Streamlit context (synkront ved page load)."""
+    """Læs session-cookie synkront fra browser-request."""
     try:
         cookies = st.context.cookies
         if cookies and SESSION_COOKIE_NAME in cookies:
             return str(cookies[SESSION_COOKIE_NAME])
     except Exception:
         pass
-    raw = get_cookie_manager().get(SESSION_COOKIE_NAME)
-    return str(raw) if raw else None
+    return None
 
 
-def prepare_cookie_reading() -> None:
-    """Mount CookieManager én gang før restore (kun for uloggede besøg)."""
-    if st.session_state.get("authenticated"):
-        return
-    if st.session_state.get("_cookie_init_done"):
-        return
-    get_cookie_manager().get_all()
-    st.session_state._cookie_init_done = True
+def restore_auth_from_cookie_if_needed() -> bool:
+    """Gendan login fra cookie når session state mangler auth."""
+    if st.session_state.get("authenticated") and st.session_state.get("auth_token"):
+        return True
+    return try_restore_auth_from_cookie()
 
 
 def try_restore_auth_from_cookie() -> bool:
@@ -615,17 +639,17 @@ def try_restore_auth_from_cookie() -> bool:
 
 
 def ensure_auth_cookie_synced() -> None:
-    """Synkroniser browser-cookie én gang efter vellykket login."""
+    """Synkroniser browser-cookie efter vellykket login."""
     token = st.session_state.get("auth_token")
     if not token or not st.session_state.get("authenticated"):
         return
-    if st.session_state.get("cookie_synced_for_token") == token:
+    if (
+        st.session_state.get("cookie_synced_for_token") == token
+        and _session_cookie_token() == str(token)
+    ):
         return
-    try:
-        set_persistent_session_cookie(str(token))
-        st.session_state.cookie_synced_for_token = token
-    except Exception:
-        pass
+    set_persistent_session_cookie(str(token))
+    st.session_state.cookie_synced_for_token = token
 
 
 def logout_user() -> None:
@@ -640,19 +664,193 @@ def logout_user() -> None:
     st.session_state.current_user = None
     st.session_state.auth_token = None
     st.session_state.cookie_synced_for_token = None
-    st.session_state._cookie_init_done = False
+    st.session_state.pop("_session_cookie_script_sig", None)
     st.session_state.active_page = "borgerliste"
+    st.session_state.account_tab = "profile"
     st.session_state.user_data_loaded_for = None
+    st.session_state.show_login_card = False
+    for key in ("page", "tab"):
+        if key in st.query_params:
+            del st.query_params[key]
 
 
 def _logo_base64() -> str:
     return base64.b64encode(LOGO_PATH.read_bytes()).decode("ascii")
 
 
+def _login_logo_html() -> str:
+    if not LOGO_PATH.exists():
+        return ""
+    return (
+        f'<div class="login-logo-wrap">'
+        f'<img src="data:image/svg+xml;base64,{_logo_base64()}" alt="{html.escape(t("app_title"))}"/>'
+        f"</div>"
+    )
+
+
+def _render_intro_page() -> None:
+    st.markdown(
+        f'<div class="login-hero">{_login_logo_html()}'
+        f'<p class="login-brand-title">{html.escape(t("intro_title"))}</p>'
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(t("intro_lead"))
+    st.markdown(f"- {t('intro_bullet_1')}")
+    st.markdown(f"- {t('intro_bullet_2')}")
+    st.markdown(f"- {t('intro_bullet_3')}")
+    if st.button(t("intro_btn_login"), type="primary", use_container_width=True, key="intro_show_login"):
+        st.session_state.show_login_card = True
+        st.rerun()
+
+
+def _render_login_card_block(*, allowed: bool) -> None:
+    st.markdown(
+        f'<div class="login-hero">{_login_logo_html()}'
+        f'<p class="login-brand-title">{html.escape(t("app_title"))}</p>'
+        f'<p class="login-brand-subtitle">{html.escape(t("login_hero_subtitle"))}</p>'
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    if st.button(t("intro_btn_back"), type="secondary", key="intro_back_to_info"):
+        st.session_state.show_login_card = False
+        st.rerun()
+
+    if not allowed:
+        return
+
+    with st.container(border=True):
+        if public_signup_enabled():
+            tab_labels = [t("login_tab"), t("signup_tab")]
+            active_tab = st.session_state.get("_login_active_tab")
+            default_tab = active_tab if active_tab in tab_labels else None
+            login_tab, signup_tab = st.tabs(tab_labels, default=default_tab)
+            with login_tab:
+                _render_login_form(show_heading=True)
+            with signup_tab:
+                _render_signup_form()
+            if active_tab in tab_labels:
+                _inject_login_tab_select(active_tab)
+                st.session_state.pop("_login_active_tab", None)
+        else:
+            _render_login_form()
+
+
+def _process_login_submit(username: str, password: str) -> None:
+    account = authenticate_user(username, password)
+    if account:
+        clear_login_attempts()
+        token = create_persistent_session(account, sync_cookie=False)
+        st.session_state.auth_token = token
+        st.session_state.authenticated = True
+        st.session_state.current_user = account
+        if BOOTSTRAP_ADMIN_PATH.exists() and username.strip().lower() == account["username"].lower():
+            try:
+                BOOTSTRAP_ADMIN_PATH.unlink()
+            except OSError:
+                pass
+        st.rerun()
+    record_failed_login()
+    st.error(t("login_error"))
+
+
+def _inject_login_tab_select(tab_label: str) -> None:
+    """Vælg login/signup-fane efter signup (st.tabs har ikke key i Streamlit 1.50)."""
+    label_json = json.dumps(tab_label, ensure_ascii=False)
+    components.html(
+        f"""<script>
+(function () {{
+  const targetLabel = {label_json};
+  const doc = window.parent.document;
+  function selectTab() {{
+    for (const tab of doc.querySelectorAll('[data-testid="stTabs"] [role="tab"]')) {{
+      if ((tab.textContent || "").trim() !== targetLabel) continue;
+      if (tab.getAttribute("aria-selected") === "true") return;
+      tab.click();
+      return;
+    }}
+  }}
+  selectTab();
+  const observer = new MutationObserver(selectTab);
+  observer.observe(doc.body, {{ childList: true, subtree: true }});
+  window.setTimeout(() => observer.disconnect(), 5000);
+}})();
+</script>""",
+        height=0,
+        width=0,
+    )
+
+
+def _render_login_form(*, show_heading: bool = True) -> None:
+    if show_heading:
+        st.markdown(f"### {t('login_title')}")
+        st.caption(t("login_caption"))
+
+    if st.session_state.pop("_signup_success_notice", False):
+        st.success(t("signup_success"))
+
+    with st.form("login_form"):
+        username = st.text_input(t("login_username"))
+        password = st.text_input(t("login_password"), type="password")
+        submitted = st.form_submit_button(t("login_submit"), type="primary", use_container_width=True)
+
+    if submitted:
+        _process_login_submit(username, password)
+
+
+def _render_signup_form() -> None:
+    st.markdown(f"### {t('signup_title')}")
+    st.caption(t("signup_caption"))
+
+    form_version = st.session_state.get("_signup_form_version", 0)
+    with st.form(f"signup_form_{form_version}", clear_on_submit=True):
+        username = st.text_input(
+            t("login_username"),
+            help=t("signup_username_requirements"),
+        )
+        password = st.text_input(
+            t("login_password"),
+            type="password",
+            help=t("signup_password_requirements", min=MIN_PASSWORD_LENGTH),
+        )
+        confirm_password = st.text_input(t("signup_confirm_password"), type="password")
+        submitted = st.form_submit_button(t("signup_submit"), type="primary", use_container_width=True)
+
+    if submitted:
+        if not validate_username(username):
+            record_failed_auth(action="signup")
+            st.error(t("admin_username_invalid"))
+            return
+        if not validate_password_strength(password):
+            record_failed_auth(action="signup")
+            st.error(t("admin_password_weak", min=MIN_PASSWORD_LENGTH))
+            return
+        if password != confirm_password:
+            record_failed_auth(action="signup")
+            st.error(t("account_password_mismatch"))
+            return
+
+        ok, message = create_user_account(username, password, role="user")
+        if ok:
+            clear_auth_attempts(action="signup")
+            st.session_state.pop("session_expired_notice", None)
+            st.session_state._signup_success_notice = True
+            st.session_state._login_active_tab = t("login_tab")
+            st.session_state._signup_form_version = form_version + 1
+            st.rerun()
+        record_failed_auth(action="signup")
+        st.error(message)
+
+
 def render_login() -> bool:
     ensure_default_admin()
 
     if st.session_state.get("authenticated"):
+        if not st.session_state.get("auth_token"):
+            if not try_restore_auth_from_cookie():
+                logout_user()
+                return False
         if refresh_session_user():
             token = st.session_state.get("auth_token")
             if token:
@@ -661,11 +859,17 @@ def render_login() -> bool:
         logout_user()
         return False
 
-    if st.session_state.pop("session_expired_notice", False):
-        st.warning(t("login_session_expired"))
+    session_expired = st.session_state.pop("session_expired_notice", False)
+    if session_expired:
+        st.session_state.show_login_card = True
 
     if notice := st.session_state.pop("_bootstrap_notice_text", None):
         st.info(notice)
+
+    if st.session_state.get("_login_active_tab"):
+        st.session_state.show_login_card = True
+
+    st.session_state.setdefault("show_login_card", False)
 
     allowed, minutes = check_login_rate_limit()
     st.markdown('<div id="login-page-anchor"></div>', unsafe_allow_html=True)
@@ -673,53 +877,15 @@ def render_login() -> bool:
 
     _, center, _ = st.columns([0.65, 1, 0.65])
     with center:
-        logo_html = ""
-        if LOGO_PATH.exists():
-            logo_html = (
-                f'<div class="login-logo-wrap">'
-                f'<img src="data:image/svg+xml;base64,{_logo_base64()}" alt="{html.escape(t("app_title"))}"/>'
-                f"</div>"
-            )
-
-        st.markdown(
-            f'<div class="login-hero">{logo_html}'
-            f'<p class="login-brand-title">{html.escape(t("app_title"))}</p>'
-            f'<p class="login-brand-subtitle">{html.escape(t("app_subtitle"))}</p>'
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+        if session_expired:
+            st.warning(t("login_session_expired"))
 
         if not allowed:
             st.error(t("login_locked_out", minutes=minutes))
-            return False
-
-        with st.container(border=True):
-            st.markdown(f"### {t('login_title')}")
-            st.caption(t("login_caption"))
-            st.caption(t("session_valid_for", minutes=configured_session_idle_minutes()))
-
-            with st.form("login_form"):
-                username = st.text_input(t("login_username"))
-                password = st.text_input(t("login_password"), type="password")
-                submitted = st.form_submit_button(t("login_submit"), type="primary", use_container_width=True)
-
-            if submitted:
-                account = authenticate_user(username, password)
-                if account:
-                    clear_login_attempts()
-                    token = create_persistent_session(account, sync_cookie=False)
-                    st.session_state.auth_token = token
-                    st.session_state.authenticated = True
-                    st.session_state.current_user = account
-                    if BOOTSTRAP_ADMIN_PATH.exists() and username.strip().lower() == account["username"].lower():
-                        try:
-                            BOOTSTRAP_ADMIN_PATH.unlink()
-                        except OSError:
-                            pass
-                    st.rerun()
-                else:
-                    record_failed_login()
-                    st.error(t("login_error"))
+        elif st.session_state.get("show_login_card"):
+            _render_login_card_block(allowed=allowed)
+        else:
+            _render_intro_page()
 
     return False
 

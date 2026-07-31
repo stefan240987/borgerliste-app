@@ -1,24 +1,31 @@
 from __future__ import annotations
 import html
+from datetime import datetime
 import pandas as pd
 import streamlit as st
 from config import (
-    MAX_RETENTION_MONTHS, MIN_PASSWORD_LENGTH, MIN_RETENTION_MONTHS,
-    MIN_SESSION_IDLE_MINUTES, MAX_SESSION_IDLE_MINUTES, USER_ROLES,
+    MAX_RETENTION_MONTHS, MAX_TRIAL_DAYS, MIN_PASSWORD_LENGTH, MIN_RETENTION_MONTHS,
+    MIN_SESSION_IDLE_MINUTES, MAX_SESSION_IDLE_MINUTES, MIN_TRIAL_DAYS, USER_ROLES,
 )
 from auth import (
     admin_reset_user_password, create_user_account, current_user, current_username,
-    deactivate_user_account, get_user_record, is_admin, load_users, role_label,
-    update_user_password, verify_admin_master_delete,
+    deactivate_user_account, get_user_record, is_admin, load_users,
+    role_label, update_user_password, verify_admin_master_delete,
 )
 from i18n import status_label, t
+from licensing import (
+    effective_is_paid, extend_user_trial, format_trial_end_date, is_trial_expired,
+    license_status_key, parse_trial_ends_at, trial_days_remaining, update_user_license,
+)
 from matching import (
     clear_master_register, load_master_register, maybe_sync_master_from_all_user_data,
 )
 from storage import (
     append_audit_log, apply_data_retention, build_citizen_label_map, configured_retention_months,
-    configured_session_idle_minutes, load_audit_log, save_app_settings,
+    configured_session_idle_minutes, configured_trial_days, load_audit_log, public_signup_enabled,
+    save_app_settings, trial_system_enabled,
 )
+from ui.common import account_tab_specs, inject_account_tab_url_sync, resolve_account_tab_default_label
 
 
 def render_profile_section() -> None:
@@ -34,6 +41,33 @@ def render_profile_section() -> None:
         st.text_input(t("account_role_label"), value=role_label(str(user.get("role", "user"))), disabled=True)
     if record.get("created_at"):
         st.caption(f"{t('account_created_label')}: {record['created_at']}")
+
+    if str(user.get("role", "user")) != "admin" and trial_system_enabled():
+        st.markdown(f"#### {t('account_license_title')}")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.text_input(
+                t("account_license_status"),
+                value=t(license_status_key(record)),
+                disabled=True,
+            )
+        with col2:
+            st.text_input(
+                t("account_license_expires"),
+                value=format_trial_end_date(record) if not effective_is_paid(record) else "—",
+                disabled=True,
+            )
+        with col3:
+            days = trial_days_remaining(record)
+            if effective_is_paid(record):
+                remaining_text = "—"
+            elif is_trial_expired(record):
+                remaining_text = t("account_license_expired_on", date=format_trial_end_date(record))
+            elif days is not None:
+                remaining_text = t("account_license_days_value", days=days)
+            else:
+                remaining_text = "—"
+            st.text_input(t("account_license_days_remaining"), value=remaining_text, disabled=True)
 
     st.markdown(f"#### {t('account_change_password_title')}")
     st.caption(t("account_password_hint", min=MIN_PASSWORD_LENGTH))
@@ -86,9 +120,127 @@ def render_admin_settings_section() -> None:
                 st.success(t("admin_session_idle_saved"))
                 st.rerun()
 
+    st.markdown(f"#### {t('admin_trial_title')}")
+    trial_enabled = trial_system_enabled()
+    trial_days = configured_trial_days()
+    st.caption(
+        t(
+            "admin_trial_current",
+            status=t("admin_trial_status_on" if trial_enabled else "admin_trial_status_off"),
+            days=trial_days,
+        )
+    )
+
+    with st.form("admin_trial_settings_form"):
+        enabled = st.checkbox(
+            t("admin_trial_enabled_label"),
+            value=trial_enabled,
+            help=t("admin_trial_enabled_help"),
+        )
+        default_days = st.number_input(
+            t("admin_trial_days_label"),
+            min_value=MIN_TRIAL_DAYS,
+            max_value=MAX_TRIAL_DAYS,
+            value=trial_days,
+            step=1,
+            help=t("admin_trial_days_help"),
+        )
+        submitted = st.form_submit_button(t("admin_session_save"), use_container_width=True)
+        if submitted:
+            try:
+                days = int(default_days)
+            except (TypeError, ValueError):
+                days = -1
+            if not MIN_TRIAL_DAYS <= days <= MAX_TRIAL_DAYS:
+                st.error(t("admin_trial_days_invalid", min=MIN_TRIAL_DAYS, max=MAX_TRIAL_DAYS))
+            else:
+                save_app_settings(trial_system_enabled=enabled, default_trial_days=days)
+                st.success(t("admin_trial_days_saved"))
+                st.rerun()
+
+    signup_enabled = public_signup_enabled()
+    st.markdown(f"#### {t('admin_public_signup_label')}")
+    st.caption(
+        t(
+            "admin_public_signup_current",
+            status=t("admin_public_signup_status_on" if signup_enabled else "admin_public_signup_status_off"),
+        )
+    )
+    st.caption(t("admin_public_signup_help"))
+
+    with st.form("admin_public_signup_form"):
+        enabled = st.checkbox(
+            t("admin_public_signup_label"),
+            value=signup_enabled,
+            help=t("admin_public_signup_help"),
+        )
+        submitted = st.form_submit_button(t("admin_session_save"), use_container_width=True)
+        if submitted:
+            save_app_settings(public_signup_enabled=enabled)
+            st.success(t("admin_public_signup_saved"))
+            st.rerun()
+
+
+def _render_admin_user_license_controls(username: str, user: dict) -> None:
+    if str(user.get("role", "user")) == "admin":
+        st.caption(t("license_status_admin"))
+        return
+
+    status = t(license_status_key(user))
+    expires = format_trial_end_date(user) if not effective_is_paid(user) else "—"
+    st.caption(f"{t('account_license_status')}: **{status}** · {t('account_license_expires')}: {expires}")
+
+    with st.expander(t("admin_user_license_title"), expanded=False):
+        is_paid = st.checkbox(
+            t("admin_user_is_paid"),
+            value=effective_is_paid(user),
+            key=f"license_paid_{username}",
+        )
+        current_end = parse_trial_ends_at(user)
+        default_date = current_end.date() if current_end else datetime.now().date()
+        new_date = st.date_input(
+            t("admin_user_trial_ends"),
+            value=default_date,
+            key=f"license_date_{username}",
+            disabled=is_paid,
+        )
+
+        extend_cols = st.columns(3)
+        for col, extra_days in zip(extend_cols, (7, 14, 30)):
+            with col:
+                if st.button(
+                    t("admin_user_extend_days", days=extra_days),
+                    key=f"extend_{extra_days}_{username}",
+                    use_container_width=True,
+                    disabled=is_paid,
+                ):
+                    ok, message = extend_user_trial(username, extra_days)
+                    if ok:
+                        st.toast(message, icon="✅")
+                        st.rerun()
+                    st.error(message)
+
+        if st.button(t("admin_session_save"), key=f"license_save_{username}", use_container_width=True):
+            if is_paid:
+                ok, message = update_user_license(username, is_paid=True)
+            else:
+                end_dt = datetime(new_date.year, new_date.month, new_date.day, 23, 59, 59)
+                ok, message = update_user_license(
+                    username,
+                    is_paid=False,
+                    trial_ends_at=end_dt,
+                )
+            if ok:
+                st.toast(message, icon="✅")
+                st.rerun()
+            st.error(message)
+
 
 def render_admin_users_section() -> None:
     st.markdown(f"#### {t('admin_users_title')}")
+
+    if notice := st.session_state.pop("_admin_user_created_notice", None):
+        st.success(notice)
 
     with st.expander(t("admin_create_user"), expanded=False):
         with st.form("create_user_form", clear_on_submit=True):
@@ -99,7 +251,7 @@ def render_admin_users_section() -> None:
             if submitted:
                 ok, message = create_user_account(username, password, role)
                 if ok:
-                    st.success(message)
+                    st.session_state._admin_user_created_notice = message
                     st.rerun()
                 st.error(message)
 
@@ -116,6 +268,8 @@ def render_admin_users_section() -> None:
             st.markdown(f"{status} **{html.escape(username)}** · {role_label(str(user.get('role', 'user')))}")
             if user.get("created_at"):
                 st.caption(f"{t('account_created_label')}: {user['created_at']}")
+
+            _render_admin_user_license_controls(username, user)
 
             if active and username != current_username():
                 with st.expander(t("admin_reset_password"), expanded=False):
@@ -300,24 +454,17 @@ def render_account_page() -> None:
     if purged := st.session_state.pop("retention_purged_count", None):
         st.info(t("admin_retention_purged", count=purged))
 
-    tab_labels = [t("account_profile_tab"), t("account_activity_tab")]
-    if is_admin():
-        tab_labels.extend(
-            [
-                t("account_admin_users_tab"),
-                t("account_admin_settings_tab"),
-                t("account_admin_master_tab"),
-                t("account_admin_audit_tab"),
-                t("account_admin_gdpr_tab"),
-            ]
-        )
+    admin = is_admin()
+    tab_specs = [(slug, t(key)) for slug, key in account_tab_specs(admin=admin)]
+    tab_labels = [label for _, label in tab_specs]
+    default_tab = resolve_account_tab_default_label(admin=admin)
 
-    tabs = st.tabs(tab_labels)
+    tabs = st.tabs(tab_labels, default=default_tab)
     with tabs[0]:
         render_profile_section()
     with tabs[1]:
         render_user_activity_section()
-    if is_admin():
+    if admin:
         with tabs[2]:
             render_admin_users_section()
         with tabs[3]:
@@ -329,3 +476,4 @@ def render_account_page() -> None:
         with tabs[6]:
             render_admin_gdpr_section()
 
+    inject_account_tab_url_sync({label: slug for slug, label in tab_specs})

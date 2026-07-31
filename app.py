@@ -2,19 +2,21 @@
 from __future__ import annotations
 import streamlit as st
 from auth import (
-    ensure_auth_cookie_synced, ensure_authenticated_session, prepare_cookie_reading,
-    render_login, try_restore_auth_from_cookie,
+    ensure_auth_cookie_synced, ensure_authenticated_session, current_username, get_user_record,
+    render_login, restore_auth_from_cookie_if_needed,
 )
 from i18n import t
-from storage import ensure_user_data_loaded, save_active_session_metadata
+from licensing import is_trial_expired
+from storage import DataLockTimeoutError, ensure_user_data_loaded, save_active_session_metadata
 from ui.admin import render_account_page, render_privacy_page
+from ui.trial_expired import render_trial_expired_page
 from ui.citizen_list import (
     filter_dataframe, render_citizen_list, render_pagination_bar, render_status_metrics,
     render_upload_section, resolve_page_size, sync_session_df_with_master,
 )
 from ui.common import (
     finish_page, init_session_state, render_page_navigation, render_sidebar_content,
-    render_sidebar_settings,
+    render_sidebar_settings, restore_navigation_from_query_params,
 )
 from ui.styles import inject_styles
 
@@ -29,9 +31,15 @@ def main() -> None:
     )
     inject_styles(st.session_state.get("theme_choice", "Browser standard"))
 
-    if not st.session_state.get("authenticated"):
-        prepare_cookie_reading()
-        try_restore_auth_from_cookie()
+    try:
+        _run_app()
+    except DataLockTimeoutError as exc:
+        st.error(str(exc))
+        st.info("Tip: Kør `pkill -f \"streamlit run.*borgerliste\"` og start kun én instans.")
+
+
+def _run_app() -> None:
+    restore_auth_from_cookie_if_needed()
 
     if not render_login():
         with st.sidebar:
@@ -46,6 +54,24 @@ def main() -> None:
         return
 
     ensure_auth_cookie_synced()
+    restore_navigation_from_query_params()
+
+    user_record = get_user_record(current_username()) if st.session_state.get("current_user") else None
+    trial_blocked = bool(user_record and is_trial_expired(user_record))
+
+    if trial_blocked:
+        render_page_navigation()
+        render_sidebar_content()
+        render_sidebar_settings()
+        active_page = st.session_state.get("active_page", "borgerliste")
+        if active_page == "account":
+            render_account_page()
+        elif active_page == "privacy":
+            render_privacy_page()
+        else:
+            render_trial_expired_page()
+        finish_page(show_pin=True)
+        return
 
     ensure_user_data_loaded()
     if purged := st.session_state.pop("retention_purged_count", None):
@@ -114,4 +140,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

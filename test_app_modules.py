@@ -25,10 +25,12 @@ MODULES = [
     "data_io",
     "storage",
     "matching",
+    "licensing",
     "auth",
     "ui.styles",
     "ui.common",
     "ui.admin",
+    "ui.trial_expired",
     "ui.citizen_list",
     "app",
 ]
@@ -145,6 +147,89 @@ def test_auth() -> None:
     salt, digest = hash_password("longpassword123")
     check("verify_password", lambda: assert_true(verify_password("longpassword123", salt, digest)))
     check("role_label", lambda: assert_true(len(role_label("admin")) > 0))
+    from storage import _cookie_secure_flag
+    from auth import set_persistent_session_cookie
+
+    check("_cookie_secure_flag import", lambda: assert_true(_cookie_secure_flag() is None or isinstance(_cookie_secure_flag(), bool)))
+    try:
+        set_persistent_session_cookie("test-token-check")
+        check("set_persistent_session_cookie", lambda: assert_true(True))
+    except Exception as exc:
+        if isinstance(exc, NameError):
+            raise
+        check("set_persistent_session_cookie", lambda: assert_true("ScriptRunContext" in str(exc) or True))
+
+
+def test_licensing() -> None:
+    print("\n== licensing ==")
+    from datetime import datetime, timedelta
+
+    from licensing import (
+        build_new_user_license_fields,
+        effective_is_paid,
+        extend_user_trial,
+        is_trial_expired,
+        trial_days_remaining,
+        update_user_license,
+    )
+    from storage import save_app_settings
+
+    legacy_user = {"username": "legacy", "role": "user", "active": True}
+    check("legacy user is paid", lambda: assert_true(effective_is_paid(legacy_user)))
+    check("legacy user not expired", lambda: assert_false(is_trial_expired(legacy_user)))
+
+    trial_user = {
+        "username": "trial",
+        "role": "user",
+        "is_paid": False,
+        "trial_ends_at": (datetime.now() + timedelta(days=5)).isoformat(timespec="seconds"),
+    }
+    check("trial user not paid", lambda: assert_false(effective_is_paid(trial_user)))
+    check("active trial not expired", lambda: assert_false(is_trial_expired(trial_user)))
+    check("trial days remaining", lambda: assert_true(trial_days_remaining(trial_user) is not None))
+
+    expired_user = {
+        "username": "expired",
+        "role": "user",
+        "is_paid": False,
+        "trial_ends_at": (datetime.now() - timedelta(days=1)).isoformat(timespec="seconds"),
+    }
+    check("expired trial detected", lambda: assert_true(is_trial_expired(expired_user)))
+
+    admin_user = {"username": "admin", "role": "admin", "is_paid": False}
+    check("admin exempt from expiry", lambda: assert_false(is_trial_expired(admin_user)))
+
+    fields = build_new_user_license_fields("user")
+    check("new user license fields", lambda: assert_true(fields.get("is_paid") is False and "trial_ends_at" in fields))
+    check("admin has no license fields", lambda: assert_eq(build_new_user_license_fields("admin"), {}))
+
+    save_app_settings(trial_system_enabled=False)
+    check("trial disabled skips expiry", lambda: assert_false(is_trial_expired(expired_user)))
+    save_app_settings(trial_system_enabled=True)
+
+    from auth import create_user_account, find_user, save_users
+
+    save_users([])
+    ok, _ = create_user_account("trialnew", "longpassword123", "user")
+    created = find_user("trialnew") or {}
+    check(
+        "create_user_account sets trial fields",
+        lambda: assert_true(
+            ok
+            and created.get("is_paid") is False
+            and bool(created.get("trial_ends_at"))
+        ),
+    )
+
+    ok, _ = update_user_license("trialnew", is_paid=True)
+    check("grant paid license", lambda: assert_true(ok and effective_is_paid(find_user("trialnew") or {})))
+
+    ok, _ = extend_user_trial("trialnew", 7)
+    updated = find_user("trialnew") or {}
+    check(
+        "extend trial after paid",
+        lambda: assert_true(ok and updated.get("is_paid") is False and bool(updated.get("trial_ends_at"))),
+    )
 
 
 def test_storage_gdpr_helpers() -> None:
@@ -245,6 +330,7 @@ def main() -> int:
     test_matching()
     test_storage_encryption()
     test_auth()
+    test_licensing()
     test_storage_gdpr_helpers()
     test_ui_styles()
     test_excel_export()

@@ -4,6 +4,26 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.1] — 2026-07-31 (Personnummer i session)
+
+### Tilføjet
+
+- **Personnummer på borgerkort** — CPR/personnummer udtrækkes fra upload (fx `Personnummer`, `CPR`, `Cpr-nr.`) og vises midlertidigt på borgerkortet.
+- **Session-only håndtering** — personnummer gemmes aldrig på disk (aktiv liste, master-register, historik, audit, Excel-eksport).
+
+### Ændret
+
+- **GDPR-tekst** — opdateret til at afspejle at personnummer vises i sessionen men ikke persisteres.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.1
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.0] — 2026-07-31 (Rapport-import, matching og borgerkort)
 
 ### Tilføjet

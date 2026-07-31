@@ -593,6 +593,34 @@ def _wrap_media(css: str, media: str | None) -> str:
     return f"@media {media} {{\n{css}\n}}"
 
 
+def _citizen_card_css() -> str:
+    accent_rules: list[str] = []
+    for filter_key, color in FILTER_ACTIVE_COLORS.items():
+        accent_rules.append(
+            f"""
+.citizen-card-anchor[data-status="{filter_key}"] + [data-testid="stElementContainer"] [data-testid="stVerticalBlockBorderWrapper"] {{
+    --app-card-accent-color: {color};
+}}"""
+        )
+    return f"""
+.citizen-card-anchor {{
+    display: none !important;
+}}
+
+.citizen-card-anchor + [data-testid="stElementContainer"] [data-testid="stVerticalBlockBorderWrapper"] {{
+    background: var(--app-card-bg) !important;
+    border: var(--app-card-border-width) solid var(--app-card-border) !important;
+    box-shadow: var(--app-card-shadow) !important;
+    margin-bottom: var(--app-card-gap) !important;
+    border-radius: 12px !important;
+    border-left: var(--app-card-accent-width) solid var(--app-card-accent-color, {PRIMARY_COLOR}) !important;
+    overflow: hidden;
+}}
+
+{"".join(accent_rules)}
+"""
+
+
 def _base_css_rules(browse_label: str) -> str:
     """Layout, upload-i18n og diskrete sidebar-knapper — bruges i alle temaer."""
     safe_label = browse_label.replace("\\", "\\\\").replace('"', '\\"')
@@ -1069,6 +1097,10 @@ def _themed_css_rules(
     """Nordic Light eller mørkt tema — tilpassede farver og kontraster."""
     card_shadow = palette.get("card_shadow", "none")
     card_border_subtle = palette.get("card_border_subtle", palette["border"])
+    card_border = palette.get("card_border", palette["border"])
+    card_border_width = palette.get("card_border_width", "1px")
+    card_gap = palette.get("card_gap", "1rem")
+    card_accent_width = palette.get("card_accent_width", "4px")
     btn_secondary = _btn_secondary_selector()
     btn_primary = _btn_primary_selector()
     rules = f"""
@@ -1083,6 +1115,10 @@ def _themed_css_rules(
     --app-border: {palette["border"]};
     --app-card-shadow: {card_shadow};
     --app-card-border-subtle: {card_border_subtle};
+    --app-card-border: {card_border};
+    --app-card-border-width: {card_border_width};
+    --app-card-gap: {card_gap};
+    --app-card-accent-width: {card_accent_width};
 }}
 
 .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"],
@@ -1295,7 +1331,7 @@ html:has(#login-page-anchor) [data-testid="stFormSubmitButton"] > button {
 
 def inject_styles(theme_choice: str) -> None:
     """Indsprøjter CSS i præcis én <style>-blok — aldrig synlig rå tekst."""
-    css_parts = [_base_css_rules(t("upload_browse")), _login_page_css()]
+    css_parts = [_base_css_rules(t("upload_browse")), _citizen_card_css(), _login_page_css()]
 
     if theme_choice == "Browser standard":
         light = THEME_PALETTES["Lyst tema"]

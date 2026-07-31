@@ -122,6 +122,14 @@ def test_data_io() -> None:
         ),
     )
 
+    cpr_csv = b"Navn,Adresse,Telefonnummer,Personnummer\nAnna,Gade 1,12345678,010190-1234\n"
+    cpr_df = standardize_dataframe(read_csv_bytes(cpr_csv)[0])
+    check("standardize_dataframe with Personnummer", lambda: assert_eq(cpr_df.iloc[0]["Personnummer"], "010190-1234"))
+    check(
+        "standardize_dataframe without Personnummer",
+        lambda: assert_false("Personnummer" in standardize_dataframe(read_csv_bytes(csv)[0]).columns),
+    )
+
 
 def test_matching() -> None:
     print("\n== matching ==")
@@ -177,6 +185,17 @@ def test_matching() -> None:
         lambda: assert_true(master_field_matches(61601251, "61601251", "Telefonnummer")),
     )
 
+    from matching import master_register_entry_from_row
+
+    cpr_row = pd.Series({
+        "Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678",
+        "Personnummer": "010190-1234", "Status": "Ikke kontaktet endnu",
+    })
+    check(
+        "master_register_entry_from_row excludes Personnummer",
+        lambda: assert_false("Personnummer" in master_register_entry_from_row(cpr_row)),
+    )
+
 
 def test_storage_encryption() -> None:
     print("\n== storage (encryption) ==")
@@ -184,7 +203,9 @@ def test_storage_encryption() -> None:
         decrypt_dict_pii,
         decrypt_pii,
         encrypt_dict_pii,
+        encrypt_df_pii,
         encrypt_pii,
+        strip_transient_columns,
         dataframe_to_state,
         count_by_status,
         update_citizen_status,
@@ -203,6 +224,22 @@ def test_storage_encryption() -> None:
     check("count_by_status", lambda: assert_eq(count_by_status(df)["Ikke kontaktet endnu"], 1))
     updated = update_citizen_status(df, "abc123", "Accepteret tilbud")
     check("update_citizen_status", lambda: assert_eq(updated.iloc[0]["Status"], "Accepteret tilbud"))
+
+    cpr_df = pd.DataFrame(
+        [{
+            "Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678",
+            "Personnummer": "010190-1234",
+            "Status": "Ikke kontaktet endnu", "Status dato": "", "Ring igen dato": "", "_id": "abc123",
+        }]
+    )
+    check(
+        "strip_transient_columns",
+        lambda: assert_false("Personnummer" in strip_transient_columns(cpr_df).columns),
+    )
+    check(
+        "encrypt_df_pii strips Personnummer",
+        lambda: assert_false("Personnummer" in encrypt_df_pii(cpr_df).columns),
+    )
 
 
 def test_auth() -> None:
@@ -378,10 +415,15 @@ def test_excel_export() -> None:
     df = pd.DataFrame(
         [{
             "Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678",
+            "Personnummer": "010190-1234",
             "Status": "Ikke kontaktet endnu", "Status dato": "01-01-2026", "Ring igen dato": "",
         }]
     )
     check("to_excel_bytes", lambda: assert_true(len(to_excel_bytes(df)) > 100))
+    check(
+        "to_excel_bytes excludes Personnummer",
+        lambda: assert_false(b"010190" in to_excel_bytes(df)),
+    )
 
 
 def test_citizen_list_helpers() -> None:

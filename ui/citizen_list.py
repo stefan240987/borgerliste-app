@@ -1,4 +1,5 @@
 from __future__ import annotations
+import html
 import json
 import os
 import secrets
@@ -13,7 +14,7 @@ from config import (
     AUDIT_LOG_PATH,
 )
 from auth import current_user, current_username
-from data_io import read_uploaded_file, standardize_dataframe
+from data_io import read_uploaded_file, repair_text, standardize_dataframe
 from i18n import (
     filter_button_label, filter_label, page_size_label, status_label, t,
 )
@@ -424,9 +425,17 @@ def _citizen_status_change_handler(citizen_id: str):
 
 
 def render_citizen_card(row: pd.Series) -> None:
+    status_key = STATUS_TO_FILTER.get(row["Status"], "not_contacted")
+    st.markdown(
+        f'<div class="citizen-card-anchor" data-status="{html.escape(status_key)}"></div>',
+        unsafe_allow_html=True,
+    )
     with st.container(border=True):
         st.markdown(status_pill_html(row["Status"], short=True), unsafe_allow_html=True)
         st.markdown(citizen_field_html(t("col_name"), row["Navn"], emphasized=True), unsafe_allow_html=True)
+        personnummer = repair_text(row.get("Personnummer", ""))
+        if personnummer:
+            st.markdown(citizen_field_html(t("col_personnummer"), personnummer), unsafe_allow_html=True)
         st.markdown(citizen_field_html(t("col_address"), row["Adresse"]), unsafe_allow_html=True)
         st.markdown(citizen_field_html(t("col_phone"), row["Telefonnummer"]), unsafe_allow_html=True)
 

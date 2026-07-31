@@ -175,8 +175,13 @@ def decrypt_dict_pii(record: dict) -> dict:
     return out
 
 
+def strip_transient_columns(df: pd.DataFrame) -> pd.DataFrame:
+    drop = [col for col in TRANSIENT_COLUMNS if col in df.columns]
+    return df.drop(columns=drop) if drop else df
+
+
 def encrypt_df_pii(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
+    out = strip_transient_columns(df.copy())
     for column in PII_FIELDS:
         if column in out.columns:
             out[column] = out[column].map(lambda value: encrypt_pii(str(value)) if repair_text(value) else value)

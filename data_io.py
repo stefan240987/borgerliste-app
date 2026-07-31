@@ -7,6 +7,7 @@ import pandas as pd
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 from config import (
     COLUMN_ALIASES, CSV_ENCODINGS, DANISH_CHARS, MAX_UPLOAD_BYTES, MOJIBAKE_MARKERS,
+    TRANSIENT_COLUMN_ALIASES,
 )
 from i18n import t
 
@@ -181,6 +182,14 @@ def find_column(df: pd.DataFrame, target: str) -> str | None:
     return None
 
 
+def find_transient_column(df: pd.DataFrame, target: str) -> str | None:
+    aliases = {normalize_header(alias) for alias in TRANSIENT_COLUMN_ALIASES[target]}
+    for col in df.columns:
+        if normalize_header(col) in aliases:
+            return col
+    return None
+
+
 def standardize_dataframe(raw: pd.DataFrame) -> pd.DataFrame:
     mapping: dict[str, str] = {}
     for target in COLUMN_ALIASES:
@@ -193,6 +202,11 @@ def standardize_dataframe(raw: pd.DataFrame) -> pd.DataFrame:
     df.columns = ["Navn", "Adresse", "Telefonnummer"]
     for column in df.columns:
         df[column] = df[column].map(repair_text)
+
+    personnummer_col = find_transient_column(raw, "Personnummer")
+    if personnummer_col is not None:
+        df["Personnummer"] = raw[personnummer_col].map(repair_text)
+
     df = df[df["Navn"].str.len() > 0].reset_index(drop=True)
     return df
 

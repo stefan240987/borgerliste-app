@@ -39,7 +39,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.5.1"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -145,7 +145,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**Behandlingsgrundlag:** Behandles af den dataansvarlige organisation "
             "(typisk offentlig opgave eller legitim interesse). Appen indsamler ikke samtykke direkte fra borgere."
         ),
-        "gdpr_data_types": "**Data:** Navn, adresse, telefonnummer og kontaktstatus. CPR behandles ikke.",
+        "gdpr_data_types": (
+            "**Data:** Navn, adresse, telefonnummer og kontaktstatus. "
+            "Personnummer vises midlertidigt i sessionen ved upload, men gemmes aldrig."
+        ),
         "gdpr_rights": (
             "**Dine rettigheder:** Indsigt, berigtigelse, sletning og dataportabilitet kan håndteres "
             "via eksport/sletning pr. borger og kontakt til jeres dataansvarlige."
@@ -386,6 +389,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_short_declined": "Afslået",
         "status_short_call_again": "Ring igen (6 mdr.)",
         "col_name": "Navn",
+        "col_personnummer": "Personnummer",
         "col_address": "Adresse",
         "col_phone": "Telefonnummer",
         "col_status": "Status",
@@ -434,7 +438,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**Legal basis:** Processed by the data controller organisation "
             "(typically public task or legitimate interest). The app does not collect consent directly from citizens."
         ),
-        "gdpr_data_types": "**Data:** Name, address, phone number and contact status. National ID (CPR) is not processed.",
+        "gdpr_data_types": (
+            "**Data:** Name, address, phone number and contact status. "
+            "National ID (CPR) is shown temporarily in the session on upload but is never stored."
+        ),
         "gdpr_rights": (
             "**Your rights:** Access, rectification, erasure and portability can be handled "
             "via per-citizen export/erase and contact with your data controller."
@@ -675,6 +682,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_short_declined": "Declined",
         "status_short_call_again": "Call again (6 mo.)",
         "col_name": "Name",
+        "col_personnummer": "National ID (CPR)",
         "col_address": "Address",
         "col_phone": "Phone number",
         "col_status": "Status",
@@ -739,6 +747,12 @@ COLUMN_ALIASES = {
         "telefon", "telefonnummer", "tlf", "tlfnr", "mobil", "phone", "telefon nr", "telefon nr.",
     ],
 }
+TRANSIENT_COLUMN_ALIASES = {
+    "Personnummer": [
+        "personnummer", "cpr", "cpr-nr.", "cpr-nr", "cpr nr", "cpr nr.",
+    ],
+}
+TRANSIENT_COLUMNS = ("Personnummer",)
 DISPLAY_COLUMNS = [
     "Navn", "Adresse", "Telefonnummer", "Status", "Status dato", "Ring igen dato",
 ]

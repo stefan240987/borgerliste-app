@@ -27,7 +27,7 @@ def main() -> None:
         page_title=t("app_title"),
         page_icon="📋",
         layout="wide",
-        initial_sidebar_state="collapsed",
+        initial_sidebar_state="auto",
     )
     inject_styles(st.session_state.get("theme_choice", "Browser standard"))
 

@@ -196,6 +196,22 @@ def test_matching() -> None:
         lambda: assert_false("Personnummer" in master_register_entry_from_row(cpr_row)),
     )
 
+    from unittest.mock import patch
+
+    from config import AUTH_SESSIONS_PATH, USERS_PATH
+    from matching import clear_master_register
+
+    AUTH_SESSIONS_PATH.write_text('{"sessions": {"tok": {"username": "admin"}}}', encoding="utf-8")
+    USERS_PATH.write_text('{"users": []}', encoding="utf-8")
+
+    with patch("auth.is_admin", return_value=True):
+        clear_master_register()
+
+    check(
+        "clear_master_register preserves auth sessions",
+        lambda: assert_true(AUTH_SESSIONS_PATH.exists() and "sessions" in AUTH_SESSIONS_PATH.read_text(encoding="utf-8")),
+    )
+
 
 def test_storage_encryption() -> None:
     print("\n== storage (encryption) ==")
@@ -269,6 +285,61 @@ def test_auth() -> None:
         if isinstance(exc, NameError):
             raise
         check("set_persistent_session_cookie", lambda: assert_true("ScriptRunContext" in str(exc) or True))
+
+    from unittest.mock import patch
+    from auth import find_user, save_users, update_user_role
+
+    salt, digest = hash_password("longpassword123")
+    save_users(
+        [
+            {
+                "username": "admin",
+                "salt": salt,
+                "password_hash": digest,
+                "role": "admin",
+                "active": True,
+            },
+            {
+                "username": "regular",
+                "salt": salt,
+                "password_hash": digest,
+                "role": "user",
+                "active": True,
+                "is_paid": False,
+                "trial_ends_at": "2099-01-01T00:00:00",
+            },
+            {
+                "username": "otheradmin",
+                "salt": salt,
+                "password_hash": digest,
+                "role": "admin",
+                "active": True,
+            },
+        ]
+    )
+
+    with patch("auth.is_admin", return_value=True), patch("auth.current_username", return_value="admin"):
+        ok, _ = update_user_role("regular", "admin")
+        promoted = find_user("regular") or {}
+        check(
+            "promote user to admin",
+            lambda: assert_true(
+                ok
+                and promoted.get("role") == "admin"
+                and "is_paid" not in promoted
+                and "trial_ends_at" not in promoted
+            ),
+        )
+
+        ok, _ = update_user_role("otheradmin", "user")
+        demoted = find_user("otheradmin") or {}
+        check(
+            "demote admin to user",
+            lambda: assert_true(ok and demoted.get("role") == "user" and "trial_ends_at" in demoted),
+        )
+
+        ok, _ = update_user_role("admin", "user")
+        check("cannot change own role", lambda: assert_false(ok))
 
 
 def test_licensing() -> None:

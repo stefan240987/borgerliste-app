@@ -4,6 +4,25 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.2] — 2026-07-31 (Admin-roller og master-sletning)
+
+### Tilføjet
+
+- **Rollestyring** — administratorer kan tildele og fratage admin-rettigheder for andre brugere under Konto → Brugere.
+
+### Rettet
+
+- **Master-sletning loggede ud** — sletning af master-register bevarer nu aktive sessioner, så administratorer forbliver logget ind.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.2
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.1] — 2026-07-31 (Personnummer i session)
 
 ### Tilføjet

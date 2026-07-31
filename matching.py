@@ -263,7 +263,12 @@ def clear_master_register() -> None:
     USER_DATA_ROOT.mkdir(parents=True, exist_ok=True)
 
     if DATA_DIR.exists():
-        preserved = {USERS_PATH.name, APP_SETTINGS_PATH.name}
+        preserved = {
+            USERS_PATH.name,
+            APP_SETTINGS_PATH.name,
+            AUTH_SESSIONS_PATH.name,
+            LOGIN_ATTEMPTS_PATH.name,
+        }
         for path in DATA_DIR.glob("*.json"):
             if path.name in preserved:
                 continue

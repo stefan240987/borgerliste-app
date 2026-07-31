@@ -39,7 +39,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.5.2"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -282,6 +282,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_no_users": "Ingen brugere endnu.",
         "admin_deactivate": "Deaktiver",
         "admin_cannot_deactivate_self": "Du kan ikke deaktivere din egen konto.",
+        "admin_change_role": "Rolle",
+        "admin_change_role_submit": "Gem rolle",
+        "admin_user_role_updated": "Rolle for {username} er ændret til {role}.",
+        "admin_cannot_change_own_role": "Du kan ikke ændre din egen rolle.",
+        "admin_cannot_demote_last_admin": "Der skal være mindst én aktiv administrator.",
         "admin_user_created": "Bruger {username} er oprettet.",
         "admin_user_deactivated": "Bruger {username} er deaktiveret.",
         "admin_user_exists": "Brugernavnet findes allerede.",
@@ -575,6 +580,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_no_users": "No users yet.",
         "admin_deactivate": "Deactivate",
         "admin_cannot_deactivate_self": "You cannot deactivate your own account.",
+        "admin_change_role": "Role",
+        "admin_change_role_submit": "Save role",
+        "admin_user_role_updated": "Role for {username} changed to {role}.",
+        "admin_cannot_change_own_role": "You cannot change your own role.",
+        "admin_cannot_demote_last_admin": "At least one active administrator is required.",
         "admin_user_created": "User {username} created.",
         "admin_user_deactivated": "User {username} deactivated.",
         "admin_user_exists": "Username already exists.",

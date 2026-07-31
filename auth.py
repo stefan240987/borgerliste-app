@@ -212,6 +212,60 @@ def update_user_password(username: str, current_password: str, new_password: str
     return True, t("account_password_updated")
 
 
+def update_user_role(username: str, role: str) -> tuple[bool, str]:
+    if not is_admin():
+        return False, t("master_delete_admin_only")
+    clean = username.strip()
+    if role not in USER_ROLES:
+        return False, t("admin_user_invalid", min=MIN_PASSWORD_LENGTH)
+    if clean.lower() == current_username().lower():
+        return False, t("admin_cannot_change_own_role")
+
+    users = load_users()
+    target: dict | None = None
+    for user in users:
+        if str(user.get("username", "")).lower() == clean.lower():
+            target = user
+            break
+    if not target or not target.get("active", True):
+        return False, t("admin_user_license_not_found")
+
+    old_role = str(target.get("role", "user"))
+    if old_role == role:
+        return True, t("admin_user_role_updated", username=clean, role=role_label(role))
+
+    if old_role == "admin" and role != "admin":
+        active_admins = sum(
+            1
+            for user in users
+            if user.get("active", True) and str(user.get("role", "user")) == "admin"
+        )
+        if active_admins <= 1:
+            return False, t("admin_cannot_demote_last_admin")
+
+    target["role"] = role
+    if role == "admin":
+        target.pop("is_paid", None)
+        target.pop("trial_ends_at", None)
+    elif "is_paid" not in target:
+        from licensing import build_new_user_license_fields
+
+        target.update(build_new_user_license_fields("user"))
+
+    save_users(users)
+
+    sessions = _load_auth_sessions()
+    changed = False
+    for entry in sessions.values():
+        if str(entry.get("username", "")).lower() == clean.lower():
+            entry["role"] = role
+            changed = True
+    if changed:
+        _save_auth_sessions(sessions)
+
+    return True, t("admin_user_role_updated", username=clean, role=role_label(role))
+
+
 def admin_reset_user_password(username: str, new_password: str) -> tuple[bool, str]:
     if not is_admin():
         return False, t("master_delete_admin_only")

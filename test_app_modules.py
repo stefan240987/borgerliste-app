@@ -286,8 +286,18 @@ def test_auth() -> None:
             raise
         check("set_persistent_session_cookie", lambda: assert_true("ScriptRunContext" in str(exc) or True))
 
+    from auth import _load_auth_sessions, create_persistent_session, find_user, save_users, update_user_role
+
+    account = {"username": "sessionuser", "role": "user"}
+    token_old = create_persistent_session(account)
+    token_new = create_persistent_session(account)
+    sessions = _load_auth_sessions()
+    check(
+        "login revokes previous session",
+        lambda: assert_true(token_old not in sessions and token_new in sessions),
+    )
+
     from unittest.mock import patch
-    from auth import find_user, save_users, update_user_role
 
     salt, digest = hash_password("longpassword123")
     save_users(

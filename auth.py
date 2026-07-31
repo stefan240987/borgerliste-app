@@ -612,6 +612,7 @@ def revoke_user_sessions(username: str) -> None:
 def create_persistent_session(account: dict, *, sync_cookie: bool = False) -> str:
     """Opret persistent session-token i auth_sessions.json."""
     prune_expired_auth_sessions()
+    revoke_user_sessions(str(account["username"]))
     token = secrets.token_urlsafe(32)
     now = datetime.now().isoformat(timespec="seconds")
     sessions = _load_auth_sessions()

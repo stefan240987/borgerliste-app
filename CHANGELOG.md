@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.13] — 2026-07-31 (Én aktiv session pr. bruger)
+
+### Rettet
+
+- **Sessionsstyring** — ved login invalideres eksisterende sessions for samme bruger, så samme konto ikke kan være logget ind flere steder samtidig.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.13
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.12] — 2026-07-31 (Omdøbning til Borgerflow)
 
 ### Ændret

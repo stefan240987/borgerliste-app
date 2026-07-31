@@ -45,8 +45,12 @@ git add -u -- \
   docker-compose.yml docker-compose.ghcr.yml
 
 git add -- \
-  scripts/ ui/ assets/ .github/ .cursor/rules/ \
+  scripts/ ui/ assets/ .github/ \
   .streamlit/config.toml .streamlit/secrets.toml.example 2>/dev/null || true
+
+if [[ -d .cursor/rules ]]; then
+  git add -- .cursor/rules/ 2>/dev/null || true
+fi
 
 if git diff --cached --quiet; then
   echo "FEJL: Intet at committe." >&2

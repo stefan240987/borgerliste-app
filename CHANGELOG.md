@@ -4,6 +4,25 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.11] — 2026-07-31 (Responsiv sidebar CSS)
+
+### Ændret
+
+- **Mobil-layout CSS** — sidebar z-index, padding og fuld bredde på hovedindhold for ren visning uden overlap på små skærme.
+
+### Rettet
+
+- **Release-script** — `release_snapshot.sh` fejlede stille når `.cursor/rules/` manglede, så `ui/`-ændringer ikke blev med i snapshot.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.11
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.10] — 2026-07-31 (Responsiv sidebar CSS)
 
 ### Ændret

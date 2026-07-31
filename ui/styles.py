@@ -1180,6 +1180,24 @@ html:has(.dark-theme) [data-testid="stSidebar"] {{
         padding-right: 0.65rem;
     }}
 
+    [data-testid="stSidebar"] {{
+        z-index: 999990 !important;
+    }}
+
+    [data-testid="stSidebar"] > div:first-child {{
+        padding: 0.75rem 0.65rem 1rem !important;
+    }}
+
+    [data-testid="stAppViewContainer"] [data-testid="stMain"],
+    [data-testid="stAppViewContainer"] [data-testid="stMain"] > div {{
+        width: 100% !important;
+        max-width: 100% !important;
+    }}
+
+    [data-testid="stSidebarBackdrop"] {{
+        z-index: 999985 !important;
+    }}
+
     .kpi-grid {{
         grid-template-columns: 1fr;
         gap: 0.55rem;

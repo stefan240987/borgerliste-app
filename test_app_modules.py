@@ -278,6 +278,23 @@ def test_config() -> None:
     check("TRANSLATIONS da+en", lambda: assert_true("da" in TRANSLATIONS and "en" in TRANSLATIONS))
 
 
+def test_release_notes() -> None:
+    print("\n== release notes ==")
+    from config import APP_VERSION
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
+    from changelog_release_notes import release_body, release_title  # noqa: E402
+
+    check(
+        "release_title",
+        lambda: assert_true(release_title(APP_VERSION).startswith(f"v{APP_VERSION}")),
+    )
+    check(
+        "release_body",
+        lambda: assert_true(len(release_body(APP_VERSION)) > 20),
+    )
+
+
 def test_excel_export() -> None:
     print("\n== excel export ==")
     from storage import to_excel_bytes
@@ -325,6 +342,7 @@ def main() -> int:
     print("Borgerliste modultest")
     test_imports()
     test_config()
+    test_release_notes()
     test_i18n()
     test_data_io()
     test_matching()

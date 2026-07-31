@@ -46,7 +46,7 @@ def main() -> int:
         cwd=ROOT,
         text=True,
     ).strip()
-    print(f"OK — {tag} peger på {short}")
+    print(f"OK — {tag} peger på {short} (push tag for GitHub Release + Docker)")
     return 0
 
 

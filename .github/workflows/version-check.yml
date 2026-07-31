@@ -1,0 +1,21 @@
+name: Version snapshot check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-version-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify APP_VERSION has git tag and CHANGELOG
+        run: python3 scripts/check_version_snapshot.py

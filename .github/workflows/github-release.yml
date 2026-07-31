@@ -1,0 +1,46 @@
+name: GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Eksisterende git-tag (fx v1.4.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Build release notes
+        id: notes
+        env:
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          TITLE="$(python3 scripts/changelog_release_notes.py "${VERSION}" --title)"
+          BODY="$(python3 scripts/changelog_release_notes.py "${VERSION}" --body)"
+          echo "title=${TITLE}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "body<<EOF"
+            echo "${BODY}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          name: ${{ steps.notes.outputs.title }}
+          body: ${{ steps.notes.outputs.body }}
+          generate_release_notes: false

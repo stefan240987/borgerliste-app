@@ -66,4 +66,5 @@ if [[ "${PUSH}" == true ]]; then
   git push origin "HEAD:${BRANCH}"
   git push origin "${TAG}"
   echo "✓ Push'et branch og tag til origin"
+  echo "→ GitHub Actions opretter release + Docker-image automatisk for ${TAG}"
 fi

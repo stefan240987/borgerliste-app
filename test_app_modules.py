@@ -64,10 +64,14 @@ def test_i18n() -> None:
 
 def test_data_io() -> None:
     print("\n== data_io ==")
+    from io import BytesIO
+
     from data_io import (
         citizen_id,
+        detect_header_row,
         normalize_phone,
         read_csv_bytes,
+        read_tabular_with_header_detection,
         repair_text,
         standardize_dataframe,
     )
@@ -79,15 +83,57 @@ def test_data_io() -> None:
     check("citizen_id stable", lambda: assert_true(len(citizen_id(pd.Series({"Navn": "A", "Adresse": "B", "Telefonnummer": "1"}))) == 16))
     check("normalize_phone", lambda: assert_eq(normalize_phone("+45 12 34 56 78"), "4512345678"))
 
+    metadata_rows = pd.DataFrame(
+        [
+            ["", "", ""],
+            ["Rapport 1", "", ""],
+            ["", "Ja", "Nej"],
+            ["Ikrafttrædelsesdato", "Navn", "By", "Tlfnr"],
+            ["28-10-2025", "Anna", "Frederiksværk", "61601251"],
+        ]
+    )
+    check("detect_header_row metadata", lambda: assert_eq(detect_header_row(metadata_rows), 3))
+
+    rapport_like = pd.DataFrame(
+        [
+            ["", "", "", ""],
+            ["", "", "Rapport 1", ""],
+            ["", "", "", ""],
+            ["Ikrafttrædelsesdato", "Navn", "By", "Tlfnr"],
+            ["28-10-2025", "Stefan Rosendahl", "Frederiksværk", 61601251],
+        ]
+    )
+    buffer = BytesIO()
+    rapport_like.to_excel(buffer, index=False, header=False)
+    excel_bytes = buffer.getvalue()
+    check(
+        "read_tabular_with_header_detection excel",
+        lambda: assert_eq(
+            len(standardize_dataframe(read_tabular_with_header_detection(excel_bytes, is_excel=True)[0])),
+            1,
+        ),
+    )
+    df = standardize_dataframe(read_tabular_with_header_detection(excel_bytes, is_excel=True)[0])
+    check(
+        "excel By/Tlfnr mapped",
+        lambda: assert_eq(
+            (df.iloc[0]["Navn"], df.iloc[0]["Adresse"], normalize_phone(df.iloc[0]["Telefonnummer"])),
+            ("Stefan Rosendahl", "Frederiksværk", "61601251"),
+        ),
+    )
+
 
 def test_matching() -> None:
     print("\n== matching ==")
     from matching import (
         apply_master_register_statuses,
+        addresses_match,
         find_master_register_match,
+        master_field_matches,
         master_match_score,
         merge_master_register_statuses,
         normalize_master_register,
+        normalize_match_address,
     )
 
     row = pd.Series({"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678"})
@@ -102,6 +148,34 @@ def test_matching() -> None:
     df["Status dato"] = ""
     df["Ring igen dato"] = ""
     check("merge_master_register_statuses", lambda: assert_eq(merge_master_register_statuses(df, [entry])[1], 1))
+
+    check(
+        "normalize_match_address postnummer",
+        lambda: assert_eq(normalize_match_address("3300 Frederiksværk"), "frederiksværk"),
+    )
+    check(
+        "addresses_match by variants",
+        lambda: assert_true(addresses_match("frederiksværk", "3300 frederiksværk")),
+    )
+    check(
+        "master_field_matches By vs postnummer",
+        lambda: assert_true(master_field_matches("Frederiksværk", "3300 Frederiksværk", "Adresse")),
+    )
+    city_row = pd.Series({"Navn": "Anna", "Adresse": "Frederiksværk", "Telefonnummer": "61601251"})
+    city_entry = {
+        "Navn": "Anna",
+        "Adresse": "3300 Frederiksværk",
+        "Telefonnummer": "99999999",
+        "Status": "Accepteret tilbud",
+        "Status dato": "01-01-2026",
+        "Ring igen dato": "",
+        "updated_at": "2026-01-01T00:00:00",
+    }
+    check("master_match_score By 2/3", lambda: assert_eq(master_match_score(city_row, city_entry), 2))
+    check(
+        "master_field_matches excel phone int",
+        lambda: assert_true(master_field_matches(61601251, "61601251", "Telefonnummer")),
+    )
 
 
 def test_storage_encryption() -> None:
@@ -255,6 +329,7 @@ def test_ui_styles() -> None:
     print("\n== ui/styles ==")
     from ui.styles import (
         _base_css_rules,
+        _citizen_card_css,
         _login_page_css,
         _themed_css_rules,
         status_pill_html,
@@ -264,6 +339,7 @@ def test_ui_styles() -> None:
 
     check("_login_page_css", lambda: assert_true(len(_login_page_css()) > 100))
     check("_base_css_rules", lambda: assert_true("upload" in _base_css_rules("Vælg fil").lower() or len(_base_css_rules("x")) > 100))
+    check("_citizen_card_css", lambda: assert_true("citizen-card-anchor" in _citizen_card_css()))
     check("_themed_css_rules", lambda: assert_true(len(_themed_css_rules(THEME_PALETTES["Lyst tema"], "#fff")) > 100))
     check("status_pill_html", lambda: assert_true("status-pill" in status_pill_html("Accepteret tilbud")))
     check("citizen_field_html", lambda: assert_true("citizen-field" in citizen_field_html("Navn", "Anna")))

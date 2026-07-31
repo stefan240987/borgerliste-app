@@ -31,6 +31,35 @@ def normalize_match_text(value: object) -> str:
     return re.sub(r"\s+", " ", repair_text(value).lower()).strip()
 
 
+def normalize_match_address(value: object) -> str:
+    text = normalize_match_text(value)
+    if not text:
+        return ""
+    text = re.sub(r"\b\d{4}\b", " ", text)
+    text = re.sub(r"\b(vej|gade|alle|allé|boulevard|plads|stræde|st\.?)\b", " ", text)
+    text = re.sub(r"\b(nr\.?|nummer|etage|sal|stuen|th|tv|mf)\b", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _address_tokens(value: str) -> set[str]:
+    return {token for token in value.split() if len(token) >= 2}
+
+
+def addresses_match(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if left in right or right in left:
+        return True
+    left_tokens = _address_tokens(left)
+    right_tokens = _address_tokens(right)
+    if not left_tokens or not right_tokens:
+        return False
+    shorter, longer = (left_tokens, right_tokens) if len(left_tokens) <= len(right_tokens) else (right_tokens, left_tokens)
+    return shorter.issubset(longer)
+
+
 def normalize_match_phone(value: object) -> str:
     return normalize_phone(str(value or ""))
 
@@ -42,6 +71,10 @@ def master_field_matches(row_value: object, entry_value: object, field: str) -> 
         if len(left) < 6 or len(right) < 6:
             return False
         return left == right
+    if field == "Adresse":
+        left = normalize_match_address(row_value)
+        right = normalize_match_address(entry_value)
+        return addresses_match(left, right)
     left = normalize_match_text(row_value)
     right = normalize_match_text(entry_value)
     if not left or not right:

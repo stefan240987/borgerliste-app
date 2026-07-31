@@ -15,6 +15,80 @@ def normalize_header(value: object) -> str:
     return repair_text(re.sub(r"\s+", " ", str(value).strip().lower()))
 
 
+def _header_aliases() -> dict[str, set[str]]:
+    return {target: {normalize_header(alias) for alias in aliases} for target, aliases in COLUMN_ALIASES.items()}
+
+
+def _row_header_score(cells: object) -> int:
+    aliases = _header_aliases()
+    matched: set[str] = set()
+    for cell in cells:
+        if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+            continue
+        normalized = normalize_header(cell)
+        if not normalized:
+            continue
+        for target, alias_set in aliases.items():
+            if target in matched:
+                continue
+            if normalized in alias_set:
+                matched.add(target)
+    return len(matched)
+
+
+def detect_header_row(raw_df: pd.DataFrame, *, max_scan_rows: int = 10) -> int:
+    """Find række med kolonneoverskrifter (Navn, Adresse/By, Telefon/Tlfnr)."""
+    best_row = 0
+    best_score = 0
+    scan_limit = min(max_scan_rows, len(raw_df))
+    for row_idx in range(scan_limit):
+        score = _row_header_score(raw_df.iloc[row_idx].tolist())
+        if score > best_score:
+            best_score = score
+            best_row = row_idx
+    return best_row if best_score >= 2 else 0
+
+
+def _read_excel_raw(raw: bytes) -> pd.DataFrame:
+    return pd.read_excel(BytesIO(raw), header=None)
+
+
+def _read_csv_raw(raw: bytes, encoding: str) -> pd.DataFrame:
+    return pd.read_csv(BytesIO(raw), encoding=encoding, header=None)
+
+
+def read_tabular_with_header_detection(raw: bytes, *, is_excel: bool) -> tuple[pd.DataFrame, str]:
+    """Læs Excel/CSV med dynamisk detektion af overskriftsrække."""
+    if is_excel:
+        preview = _read_excel_raw(raw)
+        header_row = detect_header_row(preview)
+        df = pd.read_excel(BytesIO(raw), header=header_row)
+        return repair_dataframe_text(df), "excel"
+
+    best_df: pd.DataFrame | None = None
+    best_encoding = "utf-8"
+    best_score = float("-inf")
+    last_error: Exception | None = None
+
+    for encoding in CSV_ENCODINGS:
+        try:
+            preview = _read_csv_raw(raw, encoding)
+            header_row = detect_header_row(preview)
+            candidate = pd.read_csv(BytesIO(raw), encoding=encoding, header=header_row)
+            score = encoding_quality_score(candidate)
+            if score > best_score:
+                best_score = score
+                best_df = candidate
+                best_encoding = encoding
+        except Exception as exc:
+            last_error = exc
+
+    if best_df is None:
+        raise ValueError(t("upload_error")) from last_error
+
+    return repair_dataframe_text(best_df), best_encoding
+
+
 def looks_like_mojibake(text: str) -> bool:
     if not text:
         return False
@@ -74,26 +148,7 @@ def encoding_quality_score(df: pd.DataFrame) -> float:
 
 
 def read_csv_bytes(raw: bytes) -> tuple[pd.DataFrame, str]:
-    best_df: pd.DataFrame | None = None
-    best_encoding = "utf-8"
-    best_score = float("-inf")
-    last_error: Exception | None = None
-
-    for encoding in CSV_ENCODINGS:
-        try:
-            candidate = pd.read_csv(BytesIO(raw), encoding=encoding)
-            score = encoding_quality_score(candidate)
-            if score > best_score:
-                best_score = score
-                best_df = candidate
-                best_encoding = encoding
-        except Exception as exc:
-            last_error = exc
-
-    if best_df is None:
-        raise ValueError(t("upload_error"))
-
-    return repair_dataframe_text(best_df), best_encoding
+    return read_tabular_with_header_detection(raw, is_excel=False)
 
 
 def read_uploaded_file(uploaded_file) -> tuple[pd.DataFrame, str]:
@@ -114,8 +169,7 @@ def read_uploaded_file(uploaded_file) -> tuple[pd.DataFrame, str]:
         raw = uploaded_file.read(MAX_UPLOAD_BYTES + 1)
         if len(raw) > MAX_UPLOAD_BYTES:
             raise ValueError(t("upload_too_large", max_mb=MAX_UPLOAD_BYTES // (1024 * 1024)))
-        df = pd.read_excel(BytesIO(raw))
-        return repair_dataframe_text(df), "excel"
+        return read_tabular_with_header_detection(raw, is_excel=True)
     raise ValueError(t("upload_error"))
 
 

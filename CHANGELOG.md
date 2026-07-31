@@ -4,6 +4,24 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.0] — 2026-07-31 (Rapport-import, matching og borgerkort)
+
+### Tilføjet
+
+- **Dynamisk overskriftsdetektion** — Excel/CSV med metadata-rækker (fx `Rapport_1.xlsx`) findes automatisk via scanning af de første rækker.
+- **Nye kolonne-aliaser** — `By`, `By/Adresse`, `Byen` og `Tlfnr` genkendes som Adresse/Telefonnummer.
+- **Forbedret 2/3-matching** — By/adresse sammenlignes robust (postnummer, token-overlap); telefon håndterer Excel-tal.
+- **Tydeligere borgerkort** — stærkere kant, skygge, spacing og status-accent i lyst og mørkt tema.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.0
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.4.1] — 2026-07-31 (Opstart rettet)
 
 ### Rettet

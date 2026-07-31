@@ -39,7 +39,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.5.0"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -72,20 +72,28 @@ THEME_PALETTES = {
         "text_muted": "#57534E",
         "border": "#E7E5E4",
         "color_scheme": "light",
-        "card_shadow": "0 1px 3px rgba(0,0,0,0.05)",
+        "card_shadow": "0 2px 8px rgba(0,0,0,0.08)",
         "card_border_subtle": "rgba(0,0,0,0.08)",
+        "card_border": "#D6D3D1",
+        "card_border_width": "1px",
+        "card_gap": "1rem",
+        "card_accent_width": "4px",
     },
     "Mørkt tema": {
         "bg": "#0F172A",
         "bg_secondary": "#1E293B",
         "input_bg": "#1E293B",
-        "card_bg": "#1E293B",
+        "card_bg": "#1A2332",
         "text": "#F8FAFC",
         "text_muted": "#CBD5E1",
         "border": "#334155",
         "color_scheme": "dark",
-        "card_shadow": "0 1px 3px rgba(0,0,0,0.25)",
+        "card_shadow": "0 4px 16px rgba(0,0,0,0.35)",
         "card_border_subtle": "rgba(255,255,255,0.1)",
+        "card_border": "#475569",
+        "card_border_width": "2px",
+        "card_gap": "1.25rem",
+        "card_accent_width": "4px",
     },
 }
 PRIMARY_COLOR = "#2563EB"
@@ -726,9 +734,9 @@ STATUS_PILL_CLASS = {
 }
 COLUMN_ALIASES = {
     "Navn": ["navn", "name", "fulde navn", "borger"],
-    "Adresse": ["adresse", "address", "vej", "gade"],
+    "Adresse": ["adresse", "address", "vej", "gade", "by", "by/adresse", "byen"],
     "Telefonnummer": [
-        "telefon", "telefonnummer", "tlf", "mobil", "phone", "telefon nr", "telefon nr.",
+        "telefon", "telefonnummer", "tlf", "tlfnr", "mobil", "phone", "telefon nr", "telefon nr.",
     ],
 }
 DISPLAY_COLUMNS = [

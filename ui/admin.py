@@ -9,7 +9,7 @@ from config import (
 )
 from auth import (
     admin_reset_user_password, create_user_account, current_user, current_username,
-    deactivate_user_account, get_user_record, is_admin, load_users,
+    deactivate_user_account, get_user_record, is_admin, load_users, reactivate_user_account,
     role_label, update_user_password, update_user_role, verify_admin_master_delete,
 )
 from i18n import status_label, t
@@ -26,6 +26,11 @@ from storage import (
     save_app_settings, trial_system_enabled,
 )
 from ui.common import account_tab_specs, inject_account_tab_url_sync, resolve_account_tab_default_label
+from ui.styles import (
+    admin_license_badge_html, admin_municipality_badges_html, admin_role_badge_html,
+)
+
+_ADMIN_USER_COL_WEIGHTS = [2.2, 1.1, 1.0, 1.5, 1.0, 0.9]
 
 
 def render_profile_section() -> None:
@@ -181,7 +186,115 @@ def render_admin_settings_section() -> None:
             st.rerun()
 
 
-def _render_admin_user_license_controls(username: str, user: dict) -> None:
+def _format_user_created_date(user: dict) -> str:
+    raw = user.get("created_at")
+    if not raw:
+        return t("admin_municipalities_none")
+    try:
+        return datetime.fromisoformat(str(raw)).strftime("%d-%m-%Y")
+    except ValueError:
+        return str(raw)[:10]
+
+
+def _render_admin_users_toolbar() -> None:
+    title_col, action_col = st.columns([3, 1])
+    with title_col:
+        st.markdown(f"#### {t('admin_users_title')}")
+    with action_col:
+        if st.button(
+            t("admin_create_user_btn"),
+            key="admin_create_user_btn",
+            type="primary",
+            use_container_width=True,
+        ):
+            _admin_create_user_dialog()
+
+
+@st.dialog(t("admin_create_user"))
+def _admin_create_user_dialog() -> None:
+    with st.form("create_user_form", clear_on_submit=True):
+        username = st.text_input(t("admin_new_username"))
+        password = st.text_input(t("admin_new_password"), type="password")
+        role = st.selectbox(t("admin_new_role"), USER_ROLES, format_func=role_label)
+        submitted = st.form_submit_button(t("admin_create_submit"), use_container_width=True)
+        if submitted:
+            ok, message = create_user_account(username, password, role)
+            if ok:
+                st.session_state._admin_user_created_notice = message
+                st.rerun()
+            st.error(message)
+
+
+def _render_admin_users_table(users: list[dict]) -> None:
+    header = st.columns(_ADMIN_USER_COL_WEIGHTS)
+    for col, label_key in zip(
+        header,
+        (
+            "admin_users_col_username",
+            "admin_users_col_role",
+            "admin_users_col_municipalities",
+            "admin_users_col_license",
+            "admin_users_col_created",
+            "admin_users_col_actions",
+        ),
+    ):
+        col.markdown(f'<div class="admin-users-table-header">{html.escape(t(label_key))}</div>', unsafe_allow_html=True)
+
+    for user in users:
+        username = str(user.get("username", ""))
+        active = bool(user.get("active", True))
+        role = str(user.get("role", "user"))
+        cols = st.columns(_ADMIN_USER_COL_WEIGHTS)
+
+        username_html = html.escape(username)
+        if not active:
+            username_html = f'<span class="admin-user-inactive">{username_html}</span>'
+        cols[0].markdown(f'<div class="admin-users-table-row">{username_html}</div>', unsafe_allow_html=True)
+        cols[1].markdown(admin_role_badge_html(role), unsafe_allow_html=True)
+        cols[2].markdown(admin_municipality_badges_html(None), unsafe_allow_html=True)
+        cols[3].markdown(admin_license_badge_html(user), unsafe_allow_html=True)
+        cols[4].markdown(f'<div class="admin-users-table-row">{html.escape(_format_user_created_date(user))}</div>', unsafe_allow_html=True)
+        with cols[5]:
+            if st.button(t("admin_edit_user"), key=f"edit_{username}", use_container_width=True):
+                _admin_edit_user_dialog(username)
+
+
+def _render_edit_section_role(username: str, user: dict) -> None:
+    st.markdown(f"**{t('admin_edit_section_role')}**")
+    current_role = str(user.get("role", "user"))
+    active = bool(user.get("active", True))
+
+    if not active and user.get("deactivated_at"):
+        st.caption(t("admin_user_deactivated_at", date=user["deactivated_at"]))
+
+    st.info(t("admin_municipalities_coming_soon"))
+
+    if not active or username == current_username():
+        if username == current_username() and active:
+            st.caption(t("admin_cannot_change_own_role"))
+        return
+
+    role_cols = st.columns([2, 1])
+    with role_cols[0]:
+        new_role = st.selectbox(
+            t("admin_change_role"),
+            USER_ROLES,
+            index=USER_ROLES.index(current_role) if current_role in USER_ROLES else 0,
+            format_func=role_label,
+            key=f"dialog_role_{username}",
+            label_visibility="collapsed",
+        )
+    with role_cols[1]:
+        if st.button(t("admin_change_role_submit"), key=f"dialog_role_save_{username}", use_container_width=True):
+            ok, message = update_user_role(username, new_role)
+            if ok:
+                st.toast(message, icon="✅")
+                st.rerun()
+            st.error(message)
+
+
+def _render_edit_section_license(username: str, user: dict) -> None:
+    st.markdown(f"**{t('admin_edit_section_license')}**")
     if str(user.get("role", "user")) == "admin":
         st.caption(t("license_status_admin"))
         return
@@ -190,143 +303,140 @@ def _render_admin_user_license_controls(username: str, user: dict) -> None:
     expires = format_trial_end_date(user) if not effective_is_paid(user) else "—"
     st.caption(f"{t('account_license_status')}: **{status}** · {t('account_license_expires')}: {expires}")
 
-    with st.expander(t("admin_user_license_title"), expanded=False):
-        is_paid = st.checkbox(
-            t("admin_user_is_paid"),
-            value=effective_is_paid(user),
-            key=f"license_paid_{username}",
-        )
-        current_end = parse_trial_ends_at(user)
-        default_date = current_end.date() if current_end else datetime.now().date()
-        new_date = st.date_input(
-            t("admin_user_trial_ends"),
-            value=default_date,
-            key=f"license_date_{username}",
-            disabled=is_paid,
-        )
+    is_paid = st.checkbox(
+        t("admin_user_is_paid"),
+        value=effective_is_paid(user),
+        key=f"dialog_license_paid_{username}",
+    )
+    current_end = parse_trial_ends_at(user)
+    default_date = current_end.date() if current_end else datetime.now().date()
+    new_date = st.date_input(
+        t("admin_user_trial_ends"),
+        value=default_date,
+        key=f"dialog_license_date_{username}",
+        disabled=is_paid,
+    )
 
-        extend_cols = st.columns(3)
-        for col, extra_days in zip(extend_cols, (7, 14, 30)):
-            with col:
-                if st.button(
-                    t("admin_user_extend_days", days=extra_days),
-                    key=f"extend_{extra_days}_{username}",
-                    use_container_width=True,
-                    disabled=is_paid,
-                ):
-                    ok, message = extend_user_trial(username, extra_days)
-                    if ok:
-                        st.toast(message, icon="✅")
-                        st.rerun()
-                    st.error(message)
+    extend_cols = st.columns(3)
+    for col, extra_days in zip(extend_cols, (7, 14, 30)):
+        with col:
+            if st.button(
+                t("admin_user_extend_days", days=extra_days),
+                key=f"dialog_extend_{extra_days}_{username}",
+                use_container_width=True,
+                disabled=is_paid,
+            ):
+                ok, message = extend_user_trial(username, extra_days)
+                if ok:
+                    st.toast(message, icon="✅")
+                    st.rerun()
+                st.error(message)
 
-        if st.button(t("admin_session_save"), key=f"license_save_{username}", use_container_width=True):
-            if is_paid:
-                ok, message = update_user_license(username, is_paid=True)
+    if st.button(t("admin_session_save"), key=f"dialog_license_save_{username}", use_container_width=True):
+        if is_paid:
+            ok, message = update_user_license(username, is_paid=True)
+        else:
+            end_dt = datetime(new_date.year, new_date.month, new_date.day, 23, 59, 59)
+            ok, message = update_user_license(
+                username,
+                is_paid=False,
+                trial_ends_at=end_dt,
+            )
+        if ok:
+            st.toast(message, icon="✅")
+            st.rerun()
+        st.error(message)
+
+
+def _render_edit_section_password(username: str) -> None:
+    st.markdown(f"**{t('admin_edit_section_password')}**")
+    with st.form(f"dialog_reset_password_{username}", clear_on_submit=True):
+        new_password = st.text_input(
+            t("admin_reset_password_for", username=username),
+            type="password",
+            key=f"dialog_reset_pw_{username}",
+        )
+        if st.form_submit_button(t("admin_reset_password"), use_container_width=True):
+            ok, message = admin_reset_user_password(username, new_password)
+            if ok:
+                st.success(message)
             else:
-                end_dt = datetime(new_date.year, new_date.month, new_date.day, 23, 59, 59)
-                ok, message = update_user_license(
-                    username,
-                    is_paid=False,
-                    trial_ends_at=end_dt,
-                )
+                st.error(message)
+
+
+def _render_edit_section_danger(username: str, user: dict) -> None:
+    active = bool(user.get("active", True))
+    st.markdown(
+        f'<div class="admin-danger-zone"><div class="admin-danger-zone-title">{html.escape(t("admin_edit_section_danger"))}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    if not active:
+        if st.button(
+            t("admin_reactivate"),
+            key=f"dialog_reactivate_{username}",
+            use_container_width=True,
+            type="primary",
+        ):
+            ok, message = reactivate_user_account(username)
             if ok:
                 st.toast(message, icon="✅")
                 st.rerun()
             st.error(message)
+        return
+
+    if username == current_username():
+        st.caption(t("admin_cannot_deactivate_self"))
+        return
+
+    delete_data = st.checkbox(
+        t("admin_deactivate_delete_data"),
+        key=f"dialog_delete_data_{username}",
+    )
+    if st.button(
+        t("admin_deactivate"),
+        key=f"dialog_deactivate_{username}",
+        use_container_width=True,
+        type="secondary",
+    ):
+        ok, message = deactivate_user_account(username, delete_data=delete_data)
+        if ok:
+            st.toast(message, icon="✅")
+            st.rerun()
+        st.error(message)
+
+
+@st.dialog(t("admin_edit_user_title"))
+def _admin_edit_user_dialog(username: str) -> None:
+    user = get_user_record(username)
+    if not user:
+        st.error(t("admin_user_license_not_found"))
+        return
+
+    st.markdown(f"**{html.escape(username)}**")
+    st.divider()
+
+    _render_edit_section_role(username, user)
+    st.divider()
+    _render_edit_section_license(username, user)
+    st.divider()
+    _render_edit_section_password(username)
+    st.divider()
+    _render_edit_section_danger(username, user)
 
 
 def render_admin_users_section() -> None:
-    st.markdown(f"#### {t('admin_users_title')}")
+    _render_admin_users_toolbar()
 
     if notice := st.session_state.pop("_admin_user_created_notice", None):
         st.success(notice)
-
-    with st.expander(t("admin_create_user"), expanded=False):
-        with st.form("create_user_form", clear_on_submit=True):
-            username = st.text_input(t("admin_new_username"))
-            password = st.text_input(t("admin_new_password"), type="password")
-            role = st.selectbox(t("admin_new_role"), USER_ROLES, format_func=role_label)
-            submitted = st.form_submit_button(t("admin_create_submit"), use_container_width=True)
-            if submitted:
-                ok, message = create_user_account(username, password, role)
-                if ok:
-                    st.session_state._admin_user_created_notice = message
-                    st.rerun()
-                st.error(message)
 
     users = load_users()
     if not users:
         st.info(t("admin_no_users"))
         return
 
-    for user in users:
-        username = str(user.get("username", ""))
-        active = bool(user.get("active", True))
-        status = "✅" if active else "⛔"
-        with st.container(border=True):
-            st.markdown(f"{status} **{html.escape(username)}** · {role_label(str(user.get('role', 'user')))}")
-            if user.get("created_at"):
-                st.caption(f"{t('account_created_label')}: {user['created_at']}")
-
-            _render_admin_user_license_controls(username, user)
-
-            if active and username != current_username():
-                current_role = str(user.get("role", "user"))
-                role_cols = st.columns([2, 1])
-                with role_cols[0]:
-                    new_role = st.selectbox(
-                        t("admin_change_role"),
-                        USER_ROLES,
-                        index=USER_ROLES.index(current_role) if current_role in USER_ROLES else 0,
-                        format_func=role_label,
-                        key=f"role_{username}",
-                    )
-                with role_cols[1]:
-                    st.write("")
-                    st.write("")
-                    if st.button(
-                        t("admin_change_role_submit"),
-                        key=f"role_save_{username}",
-                        use_container_width=True,
-                    ):
-                        ok, message = update_user_role(username, new_role)
-                        if ok:
-                            st.toast(message, icon="✅")
-                            st.rerun()
-                        st.error(message)
-
-                with st.expander(t("admin_reset_password"), expanded=False):
-                    with st.form(f"reset_password_{username}", clear_on_submit=True):
-                        new_password = st.text_input(
-                            t("admin_reset_password_for", username=username),
-                            type="password",
-                            key=f"reset_pw_{username}",
-                        )
-                        if st.form_submit_button(t("admin_reset_password"), use_container_width=True):
-                            ok, message = admin_reset_user_password(username, new_password)
-                            if ok:
-                                st.success(message)
-                            else:
-                                st.error(message)
-
-                delete_data = st.checkbox(
-                    t("admin_deactivate_delete_data"),
-                    key=f"delete_data_{username}",
-                )
-                if st.button(
-                    t("admin_deactivate"),
-                    key=f"deactivate_{username}",
-                    use_container_width=True,
-                    type="secondary",
-                ):
-                    ok, message = deactivate_user_account(username, delete_data=delete_data)
-                    if ok:
-                        st.toast(message, icon="✅")
-                        st.rerun()
-                    st.error(message)
-            elif active and username == current_username():
-                st.caption(t("admin_cannot_deactivate_self"))
+    _render_admin_users_table(users)
 
 
 def render_admin_master_section() -> None:

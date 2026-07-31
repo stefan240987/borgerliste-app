@@ -16,6 +16,46 @@ def status_pill_html(status: str, short: bool = True) -> str:
     return f'<span class="status-pill {pill_class}">{html.escape(label)}</span>'
 
 
+def _admin_badge(label: str, variant: str) -> str:
+    return f'<span class="admin-badge admin-badge--{html.escape(variant)}">{html.escape(label)}</span>'
+
+
+def admin_role_badge_html(role: str) -> str:
+    from auth import role_label
+
+    variant = "role-admin" if role == "admin" else "role-user"
+    return _admin_badge(role_label(role), variant)
+
+
+def admin_license_badge_html(user: dict) -> str:
+    from licensing import license_status_key, trial_days_remaining
+
+    role = str(user.get("role", "user"))
+    if role == "admin":
+        return _admin_badge(t("license_status_admin"), "license-admin")
+
+    key = license_status_key(user)
+    if key == "license_status_paid":
+        return _admin_badge(t(key), "license-paid")
+    if key == "license_status_expired":
+        return _admin_badge(t(key), "license-expired")
+
+    days = trial_days_remaining(user)
+    if days is not None:
+        return _admin_badge(t("sidebar_license_trial", days=days), "license-trial")
+    return _admin_badge(t(key), "license-trial")
+
+
+def admin_municipality_badges_html(municipalities: list[str] | None = None) -> str:
+    if not municipalities:
+        return f'<span class="admin-municipality-none">{html.escape(t("admin_municipalities_none"))}</span>'
+    chips = "".join(
+        f'<span class="admin-badge admin-municipality-badge">{html.escape(name)}</span>'
+        for name in municipalities
+    )
+    return f'<span class="admin-municipality-group">{chips}</span>'
+
+
 def citizen_field_html(label: str, value: object, *, emphasized: bool = False) -> str:
     safe_label = html.escape(label)
     safe_value = html.escape(str(value))
@@ -1089,6 +1129,186 @@ html:has(.dark-theme) [data-testid="stSidebar"] {{
 """
 
 
+def _admin_badge_css(scheme: str) -> str:
+    if scheme == "dark":
+        return """
+.admin-badge {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.3;
+    white-space: nowrap;
+    border: 1px solid transparent;
+}
+.admin-badge--role-admin {
+    background: #1E3A8A !important;
+    color: #DBEAFE !important;
+    border-color: #3B82F6 !important;
+}
+.admin-badge--role-user {
+    background: #334155 !important;
+    color: #E2E8F0 !important;
+    border-color: #64748B !important;
+}
+.admin-badge--license-paid {
+    background: #14532D !important;
+    color: #BBF7D0 !important;
+    border-color: #22C55E !important;
+}
+.admin-badge--license-trial {
+    background: #78350F !important;
+    color: #FDE68A !important;
+    border-color: #F59E0B !important;
+}
+.admin-badge--license-expired {
+    background: #7F1D1D !important;
+    color: #FECACA !important;
+    border-color: #EF4444 !important;
+}
+.admin-badge--license-admin {
+    background: #312E81 !important;
+    color: #E0E7FF !important;
+    border-color: #6366F1 !important;
+}
+.admin-municipality-none {
+    color: var(--app-text-muted, #94A3B8);
+    font-size: 0.85rem;
+}
+.admin-municipality-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+.admin-municipality-badge {
+    background: #1E293B !important;
+    color: #CBD5E1 !important;
+    border-color: #475569 !important;
+}
+.admin-user-inactive {
+    opacity: 0.55;
+    text-decoration: line-through;
+}
+.admin-users-table-header {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--app-text-muted, #94A3B8);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--app-border, #334155);
+    margin-bottom: 0.15rem;
+}
+.admin-users-table-row {
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--app-border, #334155);
+    align-items: center;
+}
+.admin-danger-zone {
+    margin-top: 0.75rem;
+    padding: 0.85rem 0.95rem;
+    border-radius: 10px;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    background: rgba(127, 29, 29, 0.12);
+}
+.admin-danger-zone-title {
+    color: #FCA5A5;
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+}
+"""
+    return """
+.admin-badge {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.3;
+    white-space: nowrap;
+    border: 1px solid transparent;
+}
+.admin-badge--role-admin {
+    background: #DBEAFE !important;
+    color: #1E40AF !important;
+    border-color: #93C5FD !important;
+}
+.admin-badge--role-user {
+    background: #F1F5F9 !important;
+    color: #475569 !important;
+    border-color: #CBD5E1 !important;
+}
+.admin-badge--license-paid {
+    background: #DCFCE7 !important;
+    color: #166534 !important;
+    border-color: #86EFAC !important;
+}
+.admin-badge--license-trial {
+    background: #FEF3C7 !important;
+    color: #92400E !important;
+    border-color: #FCD34D !important;
+}
+.admin-badge--license-expired {
+    background: #FEE2E2 !important;
+    color: #991B1B !important;
+    border-color: #FCA5A5 !important;
+}
+.admin-badge--license-admin {
+    background: #E0E7FF !important;
+    color: #3730A3 !important;
+    border-color: #A5B4FC !important;
+}
+.admin-municipality-none {
+    color: var(--app-text-muted, #64748B);
+    font-size: 0.85rem;
+}
+.admin-municipality-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+.admin-municipality-badge {
+    background: #F8FAFC !important;
+    color: #475569 !important;
+    border-color: #CBD5E1 !important;
+}
+.admin-user-inactive {
+    opacity: 0.55;
+    text-decoration: line-through;
+}
+.admin-users-table-header {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--app-text-muted, #64748B);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--app-border, #E7E5E4);
+    margin-bottom: 0.15rem;
+}
+.admin-users-table-row {
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--app-border, #E7E5E4);
+    align-items: center;
+}
+.admin-danger-zone {
+    margin-top: 0.75rem;
+    padding: 0.85rem 0.95rem;
+    border-radius: 10px;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    background: rgba(254, 226, 226, 0.45);
+}
+.admin-danger-zone-title {
+    color: #B91C1C;
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+}
+"""
+
+
 def _themed_css_rules(
     palette: dict[str, str],
     button_secondary_bg: str,
@@ -1169,6 +1389,8 @@ div[data-baseweb="select"] {{
 {_dropdown_css(palette["color_scheme"])}
 
 {_status_pill_css(palette["color_scheme"])}
+
+{_admin_badge_css(palette["color_scheme"])}
 
 {btn_secondary},
 [data-testid="stFileUploader"] button {{

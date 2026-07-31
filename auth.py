@@ -190,6 +190,23 @@ def deactivate_user_account(username: str, *, delete_data: bool = False) -> tupl
     return True, t("admin_user_deactivated", username=username)
 
 
+def reactivate_user_account(username: str) -> tuple[bool, str]:
+    users = load_users()
+    changed = False
+    for user in users:
+        if str(user.get("username", "")).lower() == username.strip().lower():
+            if user.get("active", True):
+                return False, t("admin_user_already_active", username=username)
+            user["active"] = True
+            user.pop("deactivated_at", None)
+            changed = True
+            break
+    if not changed:
+        return False, t("admin_user_invalid", min=MIN_PASSWORD_LENGTH)
+    save_users(users)
+    return True, t("admin_user_reactivated", username=username)
+
+
 def update_user_password(username: str, current_password: str, new_password: str) -> tuple[bool, str]:
     user = find_user(username)
     if not user or not user.get("active", True):

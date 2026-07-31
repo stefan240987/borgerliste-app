@@ -4,6 +4,36 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.6] — 2026-07-31 (Admin brugerstyring)
+
+### Ændret
+
+- **Admin brugerstyring** — kompakt brugertabel med badges, opret-bruger-dialog og rediger-dialog med sektioner for rolle, licens, adgangskode og deaktivering.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.6
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
+## [1.5.5] — 2026-07-31 (Genaktiver bruger)
+
+### Tilføjet
+
+- **Genaktiver bruger** — administrator kan aktivere en deaktiveret konto igen under Konto → Brugere, så brugeren kan logge ind.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.5
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.4] — 2026-07-31 (Rollestyring UI)
 
 ### Rettet

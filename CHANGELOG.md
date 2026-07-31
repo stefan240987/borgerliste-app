@@ -4,6 +4,26 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.7] — 2026-07-31 (Min konto UI)
+
+### Ændret
+
+- **Min konto — visuel harmonisering** — ensartet fladt layout på tværs af alle faner (Profil, Min aktivitet, Brugere, Indstillinger, Master-register, Status-log og GDPR) med kompakte formularer, fælles tabelstil og status-badges i audit-log.
+- **Brugere-fanen** — "Rediger"-knappen orddeler ikke længere; kolonnebredder og CSS tilpasset.
+
+### Rettet
+
+- **Rediger-bruger-dialog i mørkt tema** — modal får korrekt mørk baggrund og læsbar tekst i stedet for hvid baggrund med hvid tekst.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.7
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.6] — 2026-07-31 (Admin brugerstyring)
 
 ### Ændret

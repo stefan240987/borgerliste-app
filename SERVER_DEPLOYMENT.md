@@ -1,6 +1,6 @@
 # Server-deployment (Docker)
 
-Denne guide viser, hvordan Borgerliste køres som web-app på en server, så den kan tilgås fra mobil og desktop i browseren.
+Denne guide viser, hvordan Borgerflow køres som web-app på en server, så den kan tilgås fra mobil og desktop i browseren.
 
 ## Forudsætninger
 

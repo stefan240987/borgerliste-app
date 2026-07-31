@@ -39,7 +39,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.11"
+APP_VERSION = "1.5.12"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -128,7 +128,7 @@ OVERVIEW_CARDS: list[tuple[str, str | None]] = [
 ]
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "da": {
-        "app_title": "Borgerliste",
+        "app_title": "Borgerflow",
         "app_subtitle": "Kontakt og opfølgning på borgere",
         "menu": "Menu",
         "language": "Sprog",
@@ -379,10 +379,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "master_delete_not_configured": "Kun administratorer kan slette master-registeret.",
         "login_title": "Log ind",
         "login_tab": "Log ind",
-        "login_hero_subtitle": "Effektiv borgerkontakt og opfølgning på DigiRehab-tilbud",
-        "intro_title": "Velkommen til Borgerliste for DigiRehab",
-        "intro_lead": "Denne applikation er skabt til at gøre opfølgningen på DigiRehab-tilbud hurtig, enkel og overskuelig. I stedet for manuelle lister og Excel-ark giver appen dig et samlet digitalt arbejdsredskab til din borgerkontakt.",
-        "intro_bullet_1": "**Holde hurtigt overblik:** Se præcis hvilke borgere fra Nexus, der mangler afklaring, har takket ja/nej eller skal ringes op igen.",
+        "login_hero_subtitle": "Effektiv borgerkontakt og opfølgning",
+        "intro_title": "Velkommen til Borgerflow",
+        "intro_lead": "Denne applikation er skabt til at gøre opfølgning på borgere hurtig, enkel og overskuelig. I stedet for manuelle lister og Excel-ark giver appen dig et samlet digitalt arbejdsredskab til din borgerkontakt.",
+        "intro_bullet_1": "**Holde hurtigt overblik:** Se præcis hvilke borgere der mangler afklaring, har takket ja/nej eller skal ringes op igen.",
         "intro_bullet_2": "**Registrere opkald med ét klik:** Gem status og noter med det samme, så du og dine kolleger aldrig ringer forgæves eller dobbelt.",
         "intro_bullet_3": "**Sikre et smidigt borgerforløb:** Bevar overblikket over genopkald og aftaler uden risiko for, at borgere overses.",
         "intro_btn_login": "Log ind",
@@ -446,7 +446,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
     },
     "en": {
-        "app_title": "Citizen list",
+        "app_title": "Borgerflow",
         "app_subtitle": "Contact and follow-up on citizens",
         "menu": "Menu",
         "language": "Language",
@@ -697,10 +697,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "master_delete_not_configured": "Only administrators can delete the master register.",
         "login_title": "Sign in",
         "login_tab": "Sign in",
-        "login_hero_subtitle": "Effective citizen contact and follow-up on DigiRehab offers",
-        "intro_title": "Welcome to Borgerliste for DigiRehab",
-        "intro_lead": "This application is designed to make follow-up on DigiRehab offers fast, simple and clear. Instead of manual lists and Excel spreadsheets, the app gives you a unified digital tool for your citizen contact.",
-        "intro_bullet_1": "**Keep a quick overview:** See exactly which citizens from Nexus need clarification, have said yes/no, or need to be called again.",
+        "login_hero_subtitle": "Effective citizen contact and follow-up",
+        "intro_title": "Welcome to Borgerflow",
+        "intro_lead": "This application is designed to make citizen follow-up fast, simple and clear. Instead of manual lists and Excel spreadsheets, the app gives you a unified digital tool for your citizen contact.",
+        "intro_bullet_1": "**Keep a quick overview:** See exactly which citizens need clarification, have said yes/no, or need to be called again.",
         "intro_bullet_2": "**Log calls with one click:** Save status and notes instantly, so you and your colleagues never call in vain or twice.",
         "intro_bullet_3": "**Ensure a smooth citizen journey:** Keep track of callbacks and appointments without risking that citizens are overlooked.",
         "intro_btn_login": "Sign in",

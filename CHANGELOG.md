@@ -1,8 +1,24 @@
 # Changelog
 
-Alle væsentlige ændringer til Borgerliste dokumenteres her.
+Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
+
+## [1.5.12] — 2026-07-31 (Omdøbning til Borgerflow)
+
+### Ændret
+
+- **App-navn** — appen hedder nu **Borgerflow** (tidligere Borgerliste) i titler, login-intro og dokumentation.
+- **Fjernet produktreferencer** — alle omtaler af Nexus og DigiRehab er fjernet fra i18n-tekster og changelog.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.12
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
 
 ## [1.5.11] — 2026-07-31 (Responsiv sidebar CSS)
 
@@ -211,7 +227,7 @@ docker compose -f docker-compose.ghcr.yml up -d --build
 
 ### Tilføjet
 
-- **Login-introside** — informations-side før login-kortet (DigiRehab/Nexus-kontekst).
+- **Login-introside** — informations-side før login-kortet.
 - **Selvbetjent signup** — "Opret konto"-fane på login-siden med rate-limiting.
 - **Trial og licens** — prøveperiode for nye brugere, admin-styring, udløbet-skærm og sidebar-badge.
 - **F5-navigation** — side og konto-fane gemmes i URL (`?page=` / `?tab=`) og gendannes ved refresh.

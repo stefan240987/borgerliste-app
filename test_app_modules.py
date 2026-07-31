@@ -57,7 +57,7 @@ def test_i18n() -> None:
     print("\n== i18n ==")
     from i18n import filter_label, lang, status_label, t
 
-    check("t(da)", lambda: assert_eq(t("app_title"), "Borgerliste"))
+    check("t(da)", lambda: assert_eq(t("app_title"), "Borgerflow"))
     check("status_label", lambda: assert_eq(status_label("Accepteret tilbud"), "Accepteret tilbud"))
     check("filter_label", lambda: assert_true(len(filter_label("all")) > 0))
 
@@ -528,7 +528,7 @@ def assert_false(v) -> None:
 
 
 def main() -> int:
-    print("Borgerliste modultest")
+    print("Borgerflow modultest")
     test_imports()
     test_config()
     test_release_notes()

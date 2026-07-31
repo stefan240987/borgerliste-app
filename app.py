@@ -1,4 +1,4 @@
-"""Borgerliste – Streamlit entry point."""
+"""Borgerflow – Streamlit entry point."""
 from __future__ import annotations
 import streamlit as st
 from auth import (

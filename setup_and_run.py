@@ -95,7 +95,7 @@ def main() -> None:
         sys.exit(1)
 
     print("=" * 60)
-    print("  Borgerliste – kontaktopfølgning")
+    print("  Borgerflow – kontaktopfølgning")
     print("=" * 60)
     print(f"Mappe: {ROOT}")
 

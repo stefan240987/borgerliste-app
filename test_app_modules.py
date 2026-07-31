@@ -286,7 +286,14 @@ def test_auth() -> None:
             raise
         check("set_persistent_session_cookie", lambda: assert_true("ScriptRunContext" in str(exc) or True))
 
-    from auth import _load_auth_sessions, create_persistent_session, find_user, save_users, update_user_role
+    from auth import (
+        _load_auth_sessions,
+        create_persistent_session,
+        find_user,
+        save_users,
+        update_user_role,
+        validate_persistent_session,
+    )
 
     account = {"username": "sessionuser", "role": "user"}
     token_old = create_persistent_session(account)
@@ -295,6 +302,37 @@ def test_auth() -> None:
     check(
         "login revokes previous session",
         lambda: assert_true(token_old not in sessions and token_new in sessions),
+    )
+
+    salt, digest = hash_password("longpassword123")
+    save_users(
+        [
+            {
+                "username": "sessionuser",
+                "salt": salt,
+                "password_hash": digest,
+                "role": "user",
+                "active": True,
+            }
+        ]
+    )
+    # Simulér to parallelle sessions (fx oprettet før revoke-logikken).
+    sessions = _load_auth_sessions()
+    sessions["stale-token"] = {
+        "username": "sessionuser",
+        "role": "user",
+        "created_at": "2026-01-01T00:00:00",
+        "last_activity": "2026-01-01T00:00:00",
+    }
+    from auth import _save_auth_sessions
+
+    _save_auth_sessions(sessions)
+    check(
+        "stale session rejected when newer exists",
+        lambda: assert_true(
+            validate_persistent_session("stale-token", touch=False) is None
+            and validate_persistent_session(token_new, touch=False) is not None
+        ),
     )
 
     from unittest.mock import patch

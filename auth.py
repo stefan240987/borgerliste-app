@@ -577,6 +577,46 @@ def _session_is_expired(entry: dict, *, now: datetime | None = None) -> bool:
     return idle_seconds > session_idle_timeout_seconds() or age_seconds > session_max_age_seconds()
 
 
+def _canonical_session_token_for_user(username: str, sessions: dict[str, dict]) -> str | None:
+    """Seneste gyldige session-token for bruger (nyeste created_at)."""
+    needle = username.strip().lower()
+    candidates: list[tuple[str, datetime]] = []
+    for token, entry in sessions.items():
+        if str(entry.get("username", "")).lower() != needle:
+            continue
+        if _session_is_expired(entry):
+            continue
+        stamps = _session_timestamps(entry)
+        if stamps is None:
+            continue
+        created, _ = stamps
+        candidates.append((token, created))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[1])[0]
+
+
+def _prune_duplicate_user_sessions(sessions: dict[str, dict]) -> bool:
+    """Behold kun seneste session pr. bruger."""
+    by_user: dict[str, list[str]] = {}
+    for token, entry in sessions.items():
+        if _session_is_expired(entry):
+            continue
+        user = str(entry.get("username", "")).lower()
+        by_user.setdefault(user, []).append(token)
+
+    changed = False
+    for user, tokens in by_user.items():
+        if len(tokens) <= 1:
+            continue
+        canonical = _canonical_session_token_for_user(user, sessions)
+        for token in tokens:
+            if token != canonical:
+                sessions.pop(token, None)
+                changed = True
+    return changed
+
+
 def prune_expired_auth_sessions() -> None:
     sessions = _load_auth_sessions()
     changed = False
@@ -584,6 +624,8 @@ def prune_expired_auth_sessions() -> None:
         if _session_is_expired(sessions[token]):
             sessions.pop(token, None)
             changed = True
+    if _prune_duplicate_user_sessions(sessions):
+        changed = True
     if changed:
         _save_auth_sessions(sessions)
 
@@ -652,6 +694,12 @@ def validate_persistent_session(token: str, *, touch: bool = True) -> dict | Non
 
     account = _account_from_session_entry(entry)
     if not account:
+        sessions.pop(token, None)
+        _save_auth_sessions(sessions)
+        return None
+
+    canonical = _canonical_session_token_for_user(account["username"], sessions)
+    if canonical != token:
         sessions.pop(token, None)
         _save_auth_sessions(sessions)
         return None
@@ -926,7 +974,12 @@ def render_login() -> bool:
         if refresh_session_user():
             token = st.session_state.get("auth_token")
             if token:
-                validate_persistent_session(str(token), touch=True)
+                account = validate_persistent_session(str(token), touch=True)
+                if account is None:
+                    logout_user()
+                    st.session_state.session_expired_notice = True
+                    return False
+                st.session_state.current_user = account
             return True
         logout_user()
         return False

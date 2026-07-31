@@ -4,6 +4,22 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.14] — 2026-07-31 (Streng single-session validering)
+
+### Rettet
+
+- **Sessionsstyring** — kun den senest oprettede session accepteres ved validering; ældre tokens afvises med det samme (også for sessions oprettet før 1.5.13).
+- **Login-flow** — `render_login()` logger nu korrekt ud, hvis session-token er blevet overhalet af nyere login.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.14
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.13] — 2026-07-31 (Én aktiv session pr. bruger)
 
 ### Rettet

@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerliste dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.3] — 2026-07-31 (Rollestyring UI)
+
+### Rettet
+
+- **Rollestyring UI** — dropdown til at tildele/fratage admin-rettigheder under Konto → Brugere (backend var i v1.5.2, UI manglede i deploy).
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.3
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.2] — 2026-07-31 (Admin-roller og master-sletning)
 
 ### Tilføjet

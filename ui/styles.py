@@ -423,6 +423,85 @@ def _dark_theme_toast_css(scope: str = "") -> str:
     )
 
 
+def _dialog_css(scheme: str, scope: str = "") -> str:
+    """st.dialog renderes i en portal med Streamlits lyse modal — tilpas i mørkt tema."""
+    if scheme != "dark":
+        return ""
+
+    sp = f"{scope} " if scope else ""
+    field_css = _dark_theme_field_css(f"{sp}[data-testid='stDialog']")
+    return f"""
+{sp}[data-testid="stDialog"] div[role="dialog"] {{
+    background: var(--app-card-bg, #1A2332) !important;
+    color: var(--app-text, #F8FAFC) !important;
+    border: 1px solid var(--app-border, #334155) !important;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45) !important;
+}}
+
+{sp}[data-testid="stDialog"] div[role="dialog"] h1,
+{sp}[data-testid="stDialog"] div[role="dialog"] h2,
+{sp}[data-testid="stDialog"] div[role="dialog"] h3,
+{sp}[data-testid="stDialog"] div[role="dialog"] h4,
+{sp}[data-testid="stDialog"] div[role="dialog"] h5,
+{sp}[data-testid="stDialog"] div[role="dialog"] h6,
+{sp}[data-testid="stDialog"] div[role="dialog"] p,
+{sp}[data-testid="stDialog"] div[role="dialog"] label,
+{sp}[data-testid="stDialog"] div[role="dialog"] li,
+{sp}[data-testid="stDialog"] div[role="dialog"] strong,
+{sp}[data-testid="stDialog"] div[role="dialog"] .stMarkdown,
+{sp}[data-testid="stDialog"] div[role="dialog"] .stMarkdown p,
+{sp}[data-testid="stDialog"] div[role="dialog"] [data-testid="stMarkdownContainer"],
+{sp}[data-testid="stDialog"] div[role="dialog"] [data-testid="stMarkdownContainer"] p,
+{sp}[data-testid="stDialog"] div[role="dialog"] [data-testid="stCaptionContainer"],
+{sp}[data-testid="stDialog"] div[role="dialog"] [data-testid="stCaptionContainer"] p,
+{sp}[data-testid="stDialog"] div[role="dialog"] span:not(.status-pill):not(.admin-badge) {{
+    color: var(--app-text, #F8FAFC) !important;
+    -webkit-text-fill-color: var(--app-text, #F8FAFC) !important;
+}}
+
+{sp}[data-testid="stDialog"] button[aria-label="Close"],
+{sp}[data-testid="stDialog"] button[aria-label="Luk"] {{
+    color: var(--app-text-muted, #CBD5E1) !important;
+}}
+
+{sp}[data-testid="stDialog"] hr,
+{sp}[data-testid="stDialog"] [data-testid="stDivider"] {{
+    border-color: var(--app-border, #334155) !important;
+}}
+
+{sp}[data-testid="stDialog"] [data-testid="stAlert"],
+{sp}[data-testid="stDialog"] [data-testid="stNotification"] {{
+    background-color: var(--app-bg-secondary, #1E293B) !important;
+    color: var(--app-text, #F8FAFC) !important;
+    border-color: var(--app-border, #334155) !important;
+}}
+
+{sp}[data-testid="stDialog"] .admin-danger-zone {{
+    background: rgba(127, 29, 29, 0.18) !important;
+    border-color: rgba(239, 68, 68, 0.45) !important;
+}}
+
+{sp}[data-testid="stSelectboxVirtualDropdown"] {{
+    z-index: 1000070 !important;
+    background-color: #1E293B !important;
+    color: #F8FAFC !important;
+    border: 1px solid #334155 !important;
+}}
+
+{sp}[data-testid="stSelectboxVirtualDropdown"] [role="option"] {{
+    color: #F8FAFC !important;
+}}
+
+{sp}[data-testid="stSelectboxVirtualDropdown"] [role="option"]:hover,
+{sp}[data-testid="stSelectboxVirtualDropdown"] [role="option"][aria-selected="true"] {{
+    background-color: #334155 !important;
+    color: #F8FAFC !important;
+}}
+
+{field_css}
+"""
+
+
 def _dark_theme_tooltip_css(scope: str = "") -> str:
     sp = f"{scope} " if scope else ""
     return f"""
@@ -1309,6 +1388,142 @@ def _admin_badge_css(scheme: str) -> str:
 """
 
 
+def _account_section_css(scheme: str) -> str:
+    if scheme == "dark":
+        panel_bg = "transparent"
+        divider = "var(--app-border, #334155)"
+        gdpr_header_bg = "#1E293B"
+        gdpr_row_border = "#334155"
+        danger_bg = "rgba(127, 29, 29, 0.12)"
+        danger_border = "rgba(239, 68, 68, 0.35)"
+        danger_title = "#FCA5A5"
+        metric_value = "#F8FAFC"
+        metric_label = "#94A3B8"
+    else:
+        panel_bg = "transparent"
+        divider = "var(--app-border, #E7E5E4)"
+        gdpr_header_bg = "#F8FAFC"
+        gdpr_row_border = "#E7E5E4"
+        danger_bg = "rgba(254, 226, 226, 0.45)"
+        danger_border = "rgba(239, 68, 68, 0.35)"
+        danger_title = "#B91C1C"
+        metric_value = "#0F172A"
+        metric_label = "#64748B"
+
+    return f"""
+.account-section {{
+    margin-bottom: 0.5rem;
+}}
+.account-panel {{
+    margin-bottom: 1.25rem;
+}}
+.account-panel-divider {{
+    border-top: 1px solid {divider};
+    margin: 1.25rem 0;
+}}
+[data-testid="stTabs"] h4 {{
+    font-size: 1.05rem !important;
+    font-weight: 700 !important;
+    margin-bottom: 0.35rem !important;
+    margin-top: 0 !important;
+}}
+[data-testid="stTabs"] [data-testid="stCaptionContainer"] {{
+    margin-bottom: 0.65rem !important;
+}}
+[data-testid="stTabs"] [data-testid="stForm"] {{
+    border: none !important;
+    padding: 0 !important;
+    background: {panel_bg} !important;
+    box-shadow: none !important;
+}}
+.account-table-header {{
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--app-text-muted);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid {divider};
+    margin-bottom: 0.15rem;
+}}
+.account-table-row {{
+    padding: 0.35rem 0;
+    border-bottom: 1px solid {divider};
+    font-size: 0.9rem;
+    line-height: 1.45;
+    display: flex;
+    align-items: center;
+    min-height: 2rem;
+}}
+div[data-testid="stVerticalBlock"]:has(> .account-table-btn-marker) .stButton > button {{
+    white-space: nowrap !important;
+    min-width: max-content !important;
+    width: auto !important;
+}}
+div[data-testid="stVerticalBlock"]:has(> .account-inline-form-marker) [data-testid="stFormSubmitButton"] > button {{
+    white-space: nowrap !important;
+    min-width: max-content !important;
+    width: auto !important;
+    margin-top: 1.75rem !important;
+}}
+.account-metric-inline {{
+    display: flex;
+    align-items: baseline;
+    gap: 0.65rem;
+    padding: 0.75rem 0 0.35rem;
+}}
+.account-metric-value {{
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1;
+    color: {metric_value};
+}}
+.account-metric-label {{
+    font-size: 0.9rem;
+    color: {metric_label};
+}}
+.account-danger-panel {{
+    margin-top: 1.25rem;
+    padding: 1rem 0 0;
+    border-top: 1px solid {danger_border};
+}}
+.account-danger-panel h4,
+.account-danger-panel .account-danger-panel-title {{
+    color: {danger_title} !important;
+    font-size: 0.95rem !important;
+    margin-bottom: 0.35rem !important;
+}}
+[data-testid="stTabs"] [data-testid="stMarkdownContainer"] table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    margin-top: 0.35rem;
+    border: 1px solid {divider};
+    border-radius: 8px;
+    overflow: hidden;
+}}
+[data-testid="stTabs"] [data-testid="stMarkdownContainer"] table thead th,
+[data-testid="stTabs"] [data-testid="stMarkdownContainer"] table tr:first-child td {{
+    background: {gdpr_header_bg};
+    font-weight: 700;
+    text-align: left;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid {gdpr_row_border};
+}}
+[data-testid="stTabs"] [data-testid="stMarkdownContainer"] table td {{
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid {gdpr_row_border};
+    vertical-align: top;
+}}
+[data-testid="stTabs"] [data-testid="stMarkdownContainer"] table tr:last-child td {{
+    border-bottom: none;
+}}
+.account-gdpr-table-note {{
+    margin-top: 0.35rem;
+}}
+"""
+
+
 def _themed_css_rules(
     palette: dict[str, str],
     button_secondary_bg: str,
@@ -1391,6 +1606,8 @@ div[data-baseweb="select"] {{
 {_status_pill_css(palette["color_scheme"])}
 
 {_admin_badge_css(palette["color_scheme"])}
+
+{_account_section_css(palette["color_scheme"])}
 
 {btn_secondary},
 [data-testid="stFileUploader"] button {{
@@ -1568,6 +1785,7 @@ def inject_styles(theme_choice: str) -> None:
         css_parts.append(_wrap_media(_dark_theme_field_css("html:has(.stApp.dark-theme)"), "(prefers-color-scheme: dark)"))
         css_parts.append(_wrap_media(_dark_theme_tooltip_css("html:has(.stApp.dark-theme)"), "(prefers-color-scheme: dark)"))
         css_parts.append(_wrap_media(_dark_theme_toast_css("html:has(.stApp.dark-theme)"), "(prefers-color-scheme: dark)"))
+        css_parts.append(_wrap_media(_dialog_css("dark", "html:has(.stApp.dark-theme)"), "(prefers-color-scheme: dark)"))
     elif theme_choice in THEME_PALETTES:
         palette = THEME_PALETTES[theme_choice]
         is_light = theme_choice == "Lyst tema"
@@ -1584,6 +1802,7 @@ def inject_styles(theme_choice: str) -> None:
             css_parts.append(_dark_theme_tooltip_css())
             css_parts.append(_dark_theme_toast_css())
             css_parts.append(_dark_theme_toast_css(".dark-theme"))
+            css_parts.append(_dialog_css("dark", "html:has(.stApp.dark-theme)"))
 
     css = "<style>\n" + "\n".join(css_parts) + "\n</style>"
     st.markdown(css, unsafe_allow_html=True)

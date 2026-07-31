@@ -1,7 +1,6 @@
 from __future__ import annotations
 import html
 from datetime import datetime
-import pandas as pd
 import streamlit as st
 from config import (
     MAX_RETENTION_MONTHS, MAX_TRIAL_DAYS, MIN_PASSWORD_LENGTH, MIN_RETENTION_MONTHS,
@@ -12,7 +11,7 @@ from auth import (
     deactivate_user_account, get_user_record, is_admin, load_users, reactivate_user_account,
     role_label, update_user_password, update_user_role, verify_admin_master_delete,
 )
-from i18n import status_label, t
+from i18n import t
 from licensing import (
     effective_is_paid, extend_user_trial, format_trial_end_date, is_trial_expired,
     license_status_key, parse_trial_ends_at, trial_days_remaining, update_user_license,
@@ -21,16 +20,79 @@ from matching import (
     clear_master_register, load_master_register, maybe_sync_master_from_all_user_data,
 )
 from storage import (
-    append_audit_log, apply_data_retention, build_citizen_label_map, configured_retention_months,
+    build_citizen_label_map, configured_retention_months,
     configured_session_idle_minutes, configured_trial_days, load_audit_log, public_signup_enabled,
     save_app_settings, trial_system_enabled,
 )
 from ui.common import account_tab_specs, inject_account_tab_url_sync, resolve_account_tab_default_label
 from ui.styles import (
     admin_license_badge_html, admin_municipality_badges_html, admin_role_badge_html,
+    status_pill_html,
 )
 
-_ADMIN_USER_COL_WEIGHTS = [2.2, 1.1, 1.0, 1.5, 1.0, 0.9]
+_ADMIN_USER_COL_WEIGHTS = [2.0, 1.0, 1.0, 1.3, 1.0, 1.0]
+_AUDIT_COL_WEIGHTS_ADMIN = [1.5, 1.0, 2.0, 1.0, 1.0]
+_AUDIT_COL_WEIGHTS_USER = [1.5, 2.0, 1.0, 1.0]
+
+
+def _account_panel_divider() -> None:
+    st.markdown('<div class="account-panel-divider"></div>', unsafe_allow_html=True)
+
+
+def _account_inline_form_marker() -> None:
+    st.markdown('<div class="account-inline-form-marker"></div>', unsafe_allow_html=True)
+
+
+def _render_audit_table(
+    entries: list[dict],
+    labels: dict[str, str],
+    *,
+    show_user: bool,
+) -> None:
+    weights = _AUDIT_COL_WEIGHTS_ADMIN if show_user else _AUDIT_COL_WEIGHTS_USER
+    header_keys = (
+        ("admin_audit_col_time", "admin_audit_col_user", "admin_audit_col_citizen", "admin_audit_col_from", "admin_audit_col_to")
+        if show_user
+        else ("admin_audit_col_time", "admin_audit_col_citizen", "admin_audit_col_from", "admin_audit_col_to")
+    )
+
+    header_cols = st.columns(weights)
+    for col, key in zip(header_cols, header_keys):
+        col.markdown(
+            f'<div class="account-table-header">{html.escape(t(key))}</div>',
+            unsafe_allow_html=True,
+        )
+
+    for entry in entries:
+        citizen_id = str(entry.get("citizen_id", ""))
+        citizen_label = labels.get(citizen_id, citizen_id)
+        old_status = str(entry.get("old_status", ""))
+        new_status = str(entry.get("new_status", ""))
+        cols = st.columns(weights)
+
+        col_idx = 0
+        cols[col_idx].markdown(
+            f'<div class="account-table-row">{html.escape(str(entry.get("timestamp", "")))}</div>',
+            unsafe_allow_html=True,
+        )
+        col_idx += 1
+
+        if show_user:
+            cols[col_idx].markdown(
+                f'<div class="account-table-row">{html.escape(str(entry.get("username", "")))}</div>',
+                unsafe_allow_html=True,
+            )
+            col_idx += 1
+
+        cols[col_idx].markdown(
+            f'<div class="account-table-row">{html.escape(citizen_label)}</div>',
+            unsafe_allow_html=True,
+        )
+        col_idx += 1
+
+        cols[col_idx].markdown(status_pill_html(old_status), unsafe_allow_html=True)
+        col_idx += 1
+        cols[col_idx].markdown(status_pill_html(new_status), unsafe_allow_html=True)
 
 
 def render_profile_section() -> None:
@@ -39,6 +101,8 @@ def render_profile_section() -> None:
         return
 
     record = get_user_record(user["username"]) or {}
+    st.markdown('<div class="account-panel">', unsafe_allow_html=True)
+
     col1, col2 = st.columns(2)
     with col1:
         st.text_input(t("account_username_label"), value=user["username"], disabled=True)
@@ -48,6 +112,7 @@ def render_profile_section() -> None:
         st.caption(f"{t('account_created_label')}: {record['created_at']}")
 
     if str(user.get("role", "user")) != "admin" and trial_system_enabled():
+        _account_panel_divider()
         st.markdown(f"#### {t('account_license_title')}")
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -74,13 +139,17 @@ def render_profile_section() -> None:
                 remaining_text = "—"
             st.text_input(t("account_license_days_remaining"), value=remaining_text, disabled=True)
 
+    _account_panel_divider()
     st.markdown(f"#### {t('account_change_password_title')}")
     st.caption(t("account_password_hint", min=MIN_PASSWORD_LENGTH))
     with st.form("change_password_form", clear_on_submit=True):
-        current_password = st.text_input(t("account_current_password"), type="password")
-        new_password = st.text_input(t("account_new_password"), type="password")
-        confirm_password = st.text_input(t("account_confirm_password"), type="password")
-        submitted = st.form_submit_button(t("account_password_submit"), type="primary", use_container_width=True)
+        pw_col1, pw_col2 = st.columns(2)
+        with pw_col1:
+            current_password = st.text_input(t("account_current_password"), type="password")
+            new_password = st.text_input(t("account_new_password"), type="password")
+        with pw_col2:
+            confirm_password = st.text_input(t("account_confirm_password"), type="password")
+        submitted = st.form_submit_button(t("account_password_submit"), type="primary")
         if submitted:
             if new_password != confirm_password:
                 st.error(t("account_password_mismatch"))
@@ -93,20 +162,26 @@ def render_profile_section() -> None:
 
 
 def render_admin_settings_section() -> None:
+    st.markdown('<div class="account-panel">', unsafe_allow_html=True)
+
     st.markdown(f"#### {t('admin_session_title')}")
     current_minutes = configured_session_idle_minutes()
     st.caption(t("admin_session_current", minutes=current_minutes))
     st.caption(t("admin_session_idle_help"))
 
     with st.form("admin_session_settings_form"):
-        idle_minutes = st.number_input(
-            t("admin_session_idle_label"),
-            min_value=MIN_SESSION_IDLE_MINUTES,
-            max_value=MAX_SESSION_IDLE_MINUTES,
-            value=current_minutes,
-            step=1,
-        )
-        submitted = st.form_submit_button(t("admin_session_save"), use_container_width=True)
+        input_col, btn_col = st.columns([3, 1])
+        with input_col:
+            idle_minutes = st.number_input(
+                t("admin_session_idle_label"),
+                min_value=MIN_SESSION_IDLE_MINUTES,
+                max_value=MAX_SESSION_IDLE_MINUTES,
+                value=current_minutes,
+                step=1,
+            )
+        with btn_col:
+            _account_inline_form_marker()
+            submitted = st.form_submit_button(t("admin_session_save"))
         if submitted:
             try:
                 minutes = int(idle_minutes)
@@ -125,6 +200,7 @@ def render_admin_settings_section() -> None:
                 st.success(t("admin_session_idle_saved"))
                 st.rerun()
 
+    _account_panel_divider()
     st.markdown(f"#### {t('admin_trial_title')}")
     trial_enabled = trial_system_enabled()
     trial_days = configured_trial_days()
@@ -142,15 +218,19 @@ def render_admin_settings_section() -> None:
             value=trial_enabled,
             help=t("admin_trial_enabled_help"),
         )
-        default_days = st.number_input(
-            t("admin_trial_days_label"),
-            min_value=MIN_TRIAL_DAYS,
-            max_value=MAX_TRIAL_DAYS,
-            value=trial_days,
-            step=1,
-            help=t("admin_trial_days_help"),
-        )
-        submitted = st.form_submit_button(t("admin_session_save"), use_container_width=True)
+        days_col, btn_col = st.columns([3, 1])
+        with days_col:
+            default_days = st.number_input(
+                t("admin_trial_days_label"),
+                min_value=MIN_TRIAL_DAYS,
+                max_value=MAX_TRIAL_DAYS,
+                value=trial_days,
+                step=1,
+                help=t("admin_trial_days_help"),
+            )
+        with btn_col:
+            _account_inline_form_marker()
+            submitted = st.form_submit_button(t("admin_session_save"))
         if submitted:
             try:
                 days = int(default_days)
@@ -163,6 +243,7 @@ def render_admin_settings_section() -> None:
                 st.success(t("admin_trial_days_saved"))
                 st.rerun()
 
+    _account_panel_divider()
     signup_enabled = public_signup_enabled()
     st.markdown(f"#### {t('admin_public_signup_label')}")
     st.caption(
@@ -179,7 +260,10 @@ def render_admin_settings_section() -> None:
             value=signup_enabled,
             help=t("admin_public_signup_help"),
         )
-        submitted = st.form_submit_button(t("admin_session_save"), use_container_width=True)
+        _, btn_col = st.columns([3, 1])
+        with btn_col:
+            _account_inline_form_marker()
+            submitted = st.form_submit_button(t("admin_session_save"))
         if submitted:
             save_app_settings(public_signup_enabled=enabled)
             st.success(t("admin_public_signup_saved"))
@@ -238,7 +322,7 @@ def _render_admin_users_table(users: list[dict]) -> None:
             "admin_users_col_actions",
         ),
     ):
-        col.markdown(f'<div class="admin-users-table-header">{html.escape(t(label_key))}</div>', unsafe_allow_html=True)
+        col.markdown(f'<div class="account-table-header">{html.escape(t(label_key))}</div>', unsafe_allow_html=True)
 
     for user in users:
         username = str(user.get("username", ""))
@@ -249,13 +333,17 @@ def _render_admin_users_table(users: list[dict]) -> None:
         username_html = html.escape(username)
         if not active:
             username_html = f'<span class="admin-user-inactive">{username_html}</span>'
-        cols[0].markdown(f'<div class="admin-users-table-row">{username_html}</div>', unsafe_allow_html=True)
+        cols[0].markdown(f'<div class="account-table-row">{username_html}</div>', unsafe_allow_html=True)
         cols[1].markdown(admin_role_badge_html(role), unsafe_allow_html=True)
         cols[2].markdown(admin_municipality_badges_html(None), unsafe_allow_html=True)
         cols[3].markdown(admin_license_badge_html(user), unsafe_allow_html=True)
-        cols[4].markdown(f'<div class="admin-users-table-row">{html.escape(_format_user_created_date(user))}</div>', unsafe_allow_html=True)
+        cols[4].markdown(
+            f'<div class="account-table-row">{html.escape(_format_user_created_date(user))}</div>',
+            unsafe_allow_html=True,
+        )
         with cols[5]:
-            if st.button(t("admin_edit_user"), key=f"edit_{username}", use_container_width=True):
+            st.markdown('<div class="account-table-btn-marker"></div>', unsafe_allow_html=True)
+            if st.button(t("admin_edit_user"), key=f"edit_{username}"):
                 _admin_edit_user_dialog(username)
 
 
@@ -442,23 +530,38 @@ def render_admin_users_section() -> None:
 def render_admin_master_section() -> None:
     maybe_sync_master_from_all_user_data(force=True)
     register = load_master_register()
+    count = len(register)
+
+    st.markdown('<div class="account-panel">', unsafe_allow_html=True)
     st.caption(t("master_admin_description"))
-    st.metric("Master", len(register))
-    st.caption(t("master_register_count", count=len(register)))
+    st.markdown(
+        (
+            f'<div class="account-metric-inline">'
+            f'<span class="account-metric-value">{count}</span>'
+            f'<span class="account-metric-label">{html.escape(t("master_register_count", count=count))}</span>'
+            f"</div>"
+        ),
+        unsafe_allow_html=True,
+    )
 
-    with st.expander(t("clear_master_register"), expanded=False):
-        st.caption(t("master_delete_warning"))
+    st.markdown('<div class="account-danger-panel">', unsafe_allow_html=True)
+    st.markdown(f"#### {t('clear_master_register')}")
+    st.caption(t("master_delete_warning"))
 
-        with st.form("master_delete_form", clear_on_submit=True):
+    with st.form("master_delete_form", clear_on_submit=True):
+        pwd_col, btn_col = st.columns([3, 1])
+        with pwd_col:
             password = st.text_input(t("master_delete_password"), type="password")
-            submitted = st.form_submit_button(t("master_delete_confirm"), use_container_width=True)
-            if submitted:
-                if verify_admin_master_delete(password):
-                    clear_master_register()
-                    st.session_state.user_data_loaded_for = None
-                    st.toast(t("master_register_cleared"), icon="✅")
-                    st.rerun()
-                st.error(t("master_delete_password_error"))
+        with btn_col:
+            _account_inline_form_marker()
+            submitted = st.form_submit_button(t("master_delete_confirm"), type="secondary")
+        if submitted:
+            if verify_admin_master_delete(password):
+                clear_master_register()
+                st.session_state.user_data_loaded_for = None
+                st.toast(t("master_register_cleared"), icon="✅")
+                st.rerun()
+            st.error(t("master_delete_password_error"))
 
 
 def render_gdpr_privacy_section() -> None:
@@ -483,21 +586,12 @@ def render_user_activity_section() -> None:
         return
 
     labels = build_citizen_label_map()
-    rows = []
-    for entry in reversed(entries[-500:]):
-        citizen_id = str(entry.get("citizen_id", ""))
-        rows.append(
-            {
-                t("admin_audit_col_time"): entry.get("timestamp", ""),
-                t("admin_audit_col_citizen"): labels.get(citizen_id, citizen_id),
-                t("admin_audit_col_from"): status_label(str(entry.get("old_status", "")), short=True),
-                t("admin_audit_col_to"): status_label(str(entry.get("new_status", "")), short=True),
-            }
-        )
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    _render_audit_table(list(reversed(entries[-500:])), labels, show_user=False)
 
 
 def render_admin_gdpr_section() -> None:
+    st.markdown('<div class="account-panel">', unsafe_allow_html=True)
+
     st.markdown(f"#### {t('admin_retention_title')}")
     current_months = configured_retention_months()
     if current_months <= 0:
@@ -506,15 +600,19 @@ def render_admin_gdpr_section() -> None:
         st.caption(t("admin_retention_current", months=current_months))
 
     with st.form("admin_retention_form"):
-        months = st.number_input(
-            t("admin_retention_label"),
-            min_value=MIN_RETENTION_MONTHS,
-            max_value=MAX_RETENTION_MONTHS,
-            value=current_months,
-            step=1,
-            help=t("admin_retention_help"),
-        )
-        submitted = st.form_submit_button(t("admin_session_save"), use_container_width=True)
+        months_col, btn_col = st.columns([3, 1])
+        with months_col:
+            months = st.number_input(
+                t("admin_retention_label"),
+                min_value=MIN_RETENTION_MONTHS,
+                max_value=MAX_RETENTION_MONTHS,
+                value=current_months,
+                step=1,
+                help=t("admin_retention_help"),
+            )
+        with btn_col:
+            _account_inline_form_marker()
+            submitted = st.form_submit_button(t("admin_session_save"))
         if submitted:
             try:
                 value = int(months)
@@ -528,7 +626,9 @@ def render_admin_gdpr_section() -> None:
                 st.success(t("admin_retention_saved"))
                 st.rerun()
 
+    _account_panel_divider()
     st.markdown(f"#### {t('admin_gdpr_processing_title')}")
+    st.markdown(f'<div class="account-gdpr-table-note"></div>', unsafe_allow_html=True)
     st.markdown(t("admin_gdpr_processing_body"))
 
 
@@ -563,19 +663,7 @@ def render_audit_log_section(*, admin_view: bool = True) -> None:
             or needle in str(entry.get("citizen_id", "")).lower()
         ]
 
-    rows = []
-    for entry in reversed(filtered[-500:]):
-        citizen_id = str(entry.get("citizen_id", ""))
-        rows.append(
-            {
-                t("admin_audit_col_time"): entry.get("timestamp", ""),
-                t("admin_audit_col_user"): entry.get("username", ""),
-                t("admin_audit_col_citizen"): labels.get(citizen_id, citizen_id),
-                t("admin_audit_col_from"): status_label(str(entry.get("old_status", "")), short=True),
-                t("admin_audit_col_to"): status_label(str(entry.get("new_status", "")), short=True),
-            }
-        )
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    _render_audit_table(list(reversed(filtered[-500:])), labels, show_user=True)
 
 
 def render_privacy_page() -> None:

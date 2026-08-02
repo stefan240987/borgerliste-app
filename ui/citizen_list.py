@@ -25,9 +25,10 @@ from matching import (
 )
 from storage import (
     _data_file_lock, _read_json_raw, _safe_storage_key, _touch_master_sync_stamp,
-    _write_text_atomic, apply_saved_statuses, collect_citizen_data_export, count_by_status,
-    dataframe_to_state, erase_citizen_data, list_storage_key, load_saved_state, save_active_list,
-    save_state, set_selected_filter, storage_path, update_citizen_status, upsert_history_entry,
+    _write_text_atomic, apply_saved_statuses, clear_citizen_widget_keys,
+    collect_citizen_data_export, count_by_status, dataframe_to_state, erase_citizen_data,
+    list_storage_key, load_saved_state, save_active_list, save_state, set_selected_filter,
+    storage_path, update_citizen_status, upsert_history_entry,
 )
 from ui.styles import citizen_field_html, status_pill_html
 
@@ -147,6 +148,7 @@ def handle_file_upload(uploaded) -> bool:
         full_df, _master_merged = merge_master_register_statuses(full_df, register)
         sync_master_register_from_dataframe(full_df)
 
+        clear_citizen_widget_keys()
         st.session_state.list_key = key
         st.session_state.source_filename = uploaded.name
         st.session_state.citizens_df = full_df
@@ -253,11 +255,15 @@ def render_upload_section() -> None:
             else:
                 signature = _upload_signature(uploaded)
                 needs_upload = st.session_state.get("_last_upload_sig") != signature
-                if not needs_upload and (
+                list_empty = (
                     st.session_state.citizens_df is None or st.session_state.citizens_df.empty
-                ):
+                )
+                if not needs_upload and list_empty:
+                    # Liste er flushet (fx logout) — genindlæs ikke zombie-upload fra widget-state.
+                    st.session_state.pop("borgerliste_file_uploader", None)
                     st.session_state.pop("_last_upload_sig", None)
-                    needs_upload = True
+                    st.session_state.pop("_upload_error_detail", None)
+                    needs_upload = False
                 if needs_upload:
                     if handle_file_upload(uploaded):
                         st.session_state._last_upload_sig = signature
@@ -393,28 +399,32 @@ def handle_citizen_status_change(citizen_id: str) -> None:
         return
 
     df = st.session_state.get("citizens_df")
-    if df is None or df.empty:
+    if df is None or df.empty or "_id" not in df.columns:
         return
 
-    mask = df["_id"] == citizen_id
-    if not mask.any():
-        return
+    try:
+        mask = df["_id"] == citizen_id
+        if not mask.any():
+            return
 
-    old_status = df.loc[mask, "Status"].iloc[0]
-    if new_status == old_status:
-        return
+        old_status = df.loc[mask, "Status"].iloc[0]
+        if new_status == old_status:
+            return
 
-    updated = update_citizen_status(df, citizen_id, new_status)
-    st.session_state.citizens_df = updated
-    updated_row = updated[updated["_id"] == citizen_id].iloc[0]
-    persist_citizen_status_change(
-        updated=updated,
-        updated_row=updated_row,
-        old_status=str(old_status),
-        list_key=st.session_state.get("list_key"),
-    )
-    st.session_state._skip_master_sync_once = True
-    st.toast(t("status_saved"), icon="✅")
+        updated = update_citizen_status(df, citizen_id, new_status)
+        st.session_state.citizens_df = updated
+        updated_row = updated[updated["_id"] == citizen_id].iloc[0]
+        persist_citizen_status_change(
+            updated=updated,
+            updated_row=updated_row,
+            old_status=str(old_status),
+            list_key=st.session_state.get("list_key"),
+        )
+        st.session_state._skip_master_sync_once = True
+        st.toast(t("status_saved"), icon="✅")
+    except Exception as exc:
+        st.session_state._status_error_detail = str(exc)
+        st.error(t("status_save_error"))
 
 
 def _citizen_status_change_handler(citizen_id: str):
@@ -424,14 +434,23 @@ def _citizen_status_change_handler(citizen_id: str):
     return _handler
 
 
+def _safe_row_text(row: pd.Series, column: str) -> str:
+    value = row[column] if column in row.index else ""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in {"", "nan", "none", "nat"} else text
+
+
 def render_citizen_card(row: pd.Series) -> None:
-    status_key = STATUS_TO_FILTER.get(row["Status"], "not_contacted")
+    row_status = _safe_row_text(row, "Status") or STATUSES[0]
+    status_key = STATUS_TO_FILTER.get(row_status, "not_contacted")
     st.markdown(
         f'<div class="citizen-card-anchor" data-status="{html.escape(status_key)}"></div>',
         unsafe_allow_html=True,
     )
     with st.container(border=True):
-        st.markdown(status_pill_html(row["Status"], short=True), unsafe_allow_html=True)
+        st.markdown(status_pill_html(row_status, short=True), unsafe_allow_html=True)
         st.markdown(citizen_field_html(t("col_name"), row["Navn"], emphasized=True), unsafe_allow_html=True)
         personnummer = repair_text(row.get("Personnummer", ""))
         if personnummer:
@@ -439,20 +458,25 @@ def render_citizen_card(row: pd.Series) -> None:
         st.markdown(citizen_field_html(t("col_address"), row["Adresse"]), unsafe_allow_html=True)
         st.markdown(citizen_field_html(t("col_phone"), row["Telefonnummer"]), unsafe_allow_html=True)
 
-        current_index = STATUSES.index(row["Status"]) if row["Status"] in STATUSES else 0
+        widget_key = f"status_{row['_id']}"
+        desired_status = row_status if row_status in STATUSES else STATUSES[0]
+        # Undgå Streamlit-konflikt mellem index= og eksisterende session-værdi.
+        if widget_key not in st.session_state or st.session_state.get(widget_key) not in STATUSES:
+            st.session_state[widget_key] = desired_status
         st.selectbox(
             t("change_status"),
             STATUSES,
-            index=current_index,
-            key=f"status_{row['_id']}",
+            key=widget_key,
             format_func=lambda s: status_label(s, short=True),
             on_change=_citizen_status_change_handler(row["_id"]),
         )
 
-        if row["Status dato"]:
-            st.caption(t("last_updated", date=row["Status dato"]))
-        if row["Ring igen dato"]:
-            st.caption(t("call_again_date", date=row["Ring igen dato"]))
+        status_dato = _safe_row_text(row, "Status dato")
+        if status_dato:
+            st.caption(t("last_updated", date=status_dato))
+        ring_igen = _safe_row_text(row, "Ring igen dato")
+        if ring_igen:
+            st.caption(t("call_again_date", date=ring_igen))
 
         with st.expander(t("gdpr_citizen_title"), expanded=False):
             export_payload = collect_citizen_data_export(row)

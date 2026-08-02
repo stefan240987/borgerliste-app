@@ -462,14 +462,37 @@ def test_licensing() -> None:
     )
 
 
+class _FakeSessionState(dict):
+    """Minimal session_state-erstatning til unit tests uden Streamlit-runtime."""
+
+    def __getattr__(self, name: str):
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def __setattr__(self, name: str, value) -> None:
+        self[name] = value
+
+    def __delattr__(self, name: str) -> None:
+        try:
+            del self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+
 def test_storage_gdpr_helpers() -> None:
     print("\n== storage (gdpr helpers) ==")
+    from unittest.mock import patch
+
     from storage import (
         _history_entry_matches_row,
         _register_entry_matches_row,
         build_citizen_label_map,
         apply_data_retention,
+        clear_active_list,
         configured_retention_months,
+        update_citizen_status,
     )
 
     row = pd.Series({"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678", "_id": "x"})
@@ -480,6 +503,61 @@ def test_storage_gdpr_helpers() -> None:
     check("build_citizen_label_map", lambda: assert_true(isinstance(build_citizen_label_map(), dict)))
     check("apply_data_retention", lambda: assert_true(apply_data_retention() >= 0))
 
+    fake = _FakeSessionState(
+        {
+            "citizens_df": pd.DataFrame([{"Navn": "Anna", "_id": "abc"}]),
+            "list_key": "liste1",
+            "source_filename": "borgere.xlsx",
+            "page_number": 2,
+            "page_size": 25,
+            "selected_filter": "all",
+            "search_query": "anna",
+            "filter_signature": "sig",
+            "show_uploader": False,
+            "session_restored": True,
+            "borgerliste_file_uploader": object(),
+            "_last_upload_sig": "borgere.xlsx:123",
+            "_upload_error_detail": "fejl",
+            "last_upload_match_count": 3,
+            "_sidebar_excel_bytes": b"excel",
+            "_sidebar_excel_key": "k1",
+            "status_abc": "Accepteret tilbud",
+            "export_abc": True,
+            "erase_abc": False,
+            "unrelated_ui_flag": True,
+        }
+    )
+    with patch("storage.st.session_state", fake), patch("storage._auth_current_user", return_value=None):
+        clear_active_list(username=None, list_key=None)
+
+    def _assert_flush() -> None:
+        assert_eq(fake.get("citizens_df"), None)
+        assert_eq(fake.get("list_key"), None)
+        assert_eq(fake.get("source_filename"), None)
+        assert_true(fake.get("show_uploader") is True)
+        for key in (
+            "borgerliste_file_uploader",
+            "_last_upload_sig",
+            "_upload_error_detail",
+            "last_upload_match_count",
+            "_sidebar_excel_bytes",
+            "_sidebar_excel_key",
+            "status_abc",
+            "export_abc",
+            "erase_abc",
+        ):
+            assert_false(key in fake)
+        assert_true(fake.get("unrelated_ui_flag") is True)
+
+    check("clear_active_list flushes upload+widgets", _assert_flush)
+
+    sparse = pd.DataFrame([{"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "1", "_id": "c1", "Status": "Ikke kontaktet endnu"}])
+    ring = update_citizen_status(sparse, "c1", "Ring igen om 6 måneder")
+    check(
+        "update_citizen_status creates Ring igen dato",
+        lambda: assert_true(bool(ring.iloc[0]["Ring igen dato"]) and "Ring igen dato" in ring.columns),
+    )
+
 
 def test_ui_styles() -> None:
     print("\n== ui/styles ==")
@@ -488,10 +566,12 @@ def test_ui_styles() -> None:
         _citizen_card_css,
         _login_page_css,
         _themed_css_rules,
+        inject_sidebar_controls,
         status_pill_html,
         citizen_field_html,
     )
     from config import THEME_PALETTES
+    from unittest.mock import patch
 
     check("_login_page_css", lambda: assert_true(len(_login_page_css()) > 100))
     check("_base_css_rules", lambda: assert_true("upload" in _base_css_rules("Vælg fil").lower() or len(_base_css_rules("x")) > 100))
@@ -499,6 +579,27 @@ def test_ui_styles() -> None:
     check("_themed_css_rules", lambda: assert_true(len(_themed_css_rules(THEME_PALETTES["Lyst tema"], "#fff")) > 100))
     check("status_pill_html", lambda: assert_true("status-pill" in status_pill_html("Accepteret tilbud")))
     check("citizen_field_html", lambda: assert_true("citizen-field" in citizen_field_html("Navn", "Anna")))
+
+    captured: dict[str, str] = {}
+
+    def _capture_html(html: str, **_kwargs) -> None:
+        captured["html"] = html
+
+    with patch("ui.styles.components.html", side_effect=_capture_html):
+        inject_sidebar_controls(pinned=True, show_pin=True, pin_label="Pin", unpin_label="Unpin")
+    script = captured.get("html", "")
+    check(
+        "sidebar no force-expand on refresh",
+        lambda: assert_true("cfg.expandSidebar()" not in script and "effectivePinned" in script),
+    )
+    check(
+        "sidebar mobile collapse path",
+        lambda: assert_true("isMobile" in script and "collapseSidebar" in script and "max-width: 768px" in script),
+    )
+    check(
+        "sidebar prefers Streamlit testids",
+        lambda: assert_true("stSidebarCollapseButton" in script and "stExpandSidebarButton" in script),
+    )
 
 
 def test_config() -> None:
@@ -547,7 +648,15 @@ def test_excel_export() -> None:
 
 def test_citizen_list_helpers() -> None:
     print("\n== ui/citizen_list helpers ==")
-    from ui.citizen_list import filter_dataframe, resolve_page_size, _coerce_uploaded_file
+    from unittest.mock import patch
+
+    from ui.citizen_list import (
+        _safe_row_text,
+        filter_dataframe,
+        handle_citizen_status_change,
+        resolve_page_size,
+        _coerce_uploaded_file,
+    )
 
     df = pd.DataFrame([
         {"Navn": "Anna", "Adresse": "A", "Telefonnummer": "1", "Status": "Ikke kontaktet endnu"},
@@ -558,6 +667,55 @@ def test_citizen_list_helpers() -> None:
     check("filter_dataframe search", lambda: assert_eq(len(filter_dataframe(df, "all", "anna")), 1))
     check("resolve_page_size Alle", lambda: assert_eq(resolve_page_size("Alle", 10), 10))
     check("_coerce_uploaded_file None", lambda: assert_eq(_coerce_uploaded_file(None), None))
+    check(
+        "_safe_row_text missing/nan",
+        lambda: assert_eq(_safe_row_text(pd.Series({"Status dato": float("nan")}), "Ring igen dato"), ""),
+    )
+
+    status_df = pd.DataFrame(
+        [{
+            "Navn": "Anna", "Adresse": "A", "Telefonnummer": "1",
+            "Status": "Ikke kontaktet endnu", "Status dato": "", "Ring igen dato": "", "_id": "cid1",
+        }]
+    )
+    fake = _FakeSessionState(
+        {
+            "citizens_df": status_df,
+            "status_cid1": "Ring igen om 6 måneder",
+            "list_key": None,
+        }
+    )
+    errors: list[str] = []
+
+    def _capture_error(msg: str) -> None:
+        errors.append(str(msg))
+
+    with (
+        patch("ui.citizen_list.st.session_state", fake),
+        patch("ui.citizen_list.st.toast", lambda *_a, **_k: None),
+        patch("ui.citizen_list.st.error", _capture_error),
+        patch("ui.citizen_list.persist_citizen_status_change", lambda **_k: None),
+    ):
+        handle_citizen_status_change("cid1")
+
+    check(
+        "handle_citizen_status_change Ring igen",
+        lambda: assert_true(
+            fake["citizens_df"].iloc[0]["Status"] == "Ring igen om 6 måneder"
+            and bool(fake["citizens_df"].iloc[0]["Ring igen dato"])
+            and not errors
+        ),
+    )
+
+    # Tom liste må ikke crashe status-handler
+    fake_empty = _FakeSessionState({"citizens_df": None, "status_cid1": "Accepteret tilbud"})
+    with (
+        patch("ui.citizen_list.st.session_state", fake_empty),
+        patch("ui.citizen_list.st.toast", lambda *_a, **_k: None),
+        patch("ui.citizen_list.st.error", _capture_error),
+    ):
+        handle_citizen_status_change("cid1")
+    check("handle_citizen_status_change empty df", lambda: assert_true(True))
 
 
 def assert_eq(a, b) -> None:

@@ -39,7 +39,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.14"
+APP_VERSION = "1.5.15"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -237,6 +237,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "last_updated": "Sidst opdateret: {date}",
         "call_again_date": "Ring igen: {date}",
         "status_saved": "Status gemt",
+        "status_save_error": "Kunne ikke gemme status. Prøv igen.",
         "no_citizens_match": "Ingen borgere matcher dit filter. Prøv et andet filter eller søgning.",
 
         "login_username": "Brugernavn",
@@ -555,6 +556,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "last_updated": "Last updated: {date}",
         "call_again_date": "Call again: {date}",
         "status_saved": "Status saved",
+        "status_save_error": "Could not save status. Please try again.",
         "no_citizens_match": "No citizens match your filter. Try another filter or search.",
 
         "login_username": "Username",

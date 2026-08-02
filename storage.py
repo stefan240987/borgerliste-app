@@ -575,6 +575,7 @@ def restore_active_list_if_available() -> bool:
     page_size = meta.get("page_size", 25)
     selected_filter = meta.get("selected_filter", meta.get("filter_key", "all"))
 
+    clear_citizen_widget_keys()
     st.session_state.citizens_df = df.reset_index(drop=True)
     st.session_state.list_key = list_key
     st.session_state.source_filename = meta.get("source_filename") or "borgerliste"
@@ -586,6 +587,30 @@ def restore_active_list_if_available() -> bool:
     st.session_state.session_restored = True
     sync_history_from_dataframe(st.session_state.citizens_df)
     return True
+
+
+_UPLOAD_SESSION_KEYS = (
+    "borgerliste_file_uploader",
+    "_last_upload_sig",
+    "_upload_error_detail",
+    "last_upload_match_count",
+    "_sidebar_excel_bytes",
+    "_sidebar_excel_key",
+)
+_CITIZEN_WIDGET_PREFIXES = ("status_", "export_", "erase_")
+
+
+def clear_citizen_widget_keys() -> None:
+    """Fjern Streamlit-widget state knyttet til borgere (status/export/erase)."""
+    for key in list(st.session_state.keys()):
+        if isinstance(key, str) and key.startswith(_CITIZEN_WIDGET_PREFIXES):
+            st.session_state.pop(key, None)
+
+
+def clear_upload_session_state() -> None:
+    """Fjern upload-pipeline og Excel-cache fra session (GDPR)."""
+    for key in _UPLOAD_SESSION_KEYS:
+        st.session_state.pop(key, None)
 
 
 def clear_active_list(*, username: str | None = None, list_key: str | None = None) -> None:
@@ -621,6 +646,8 @@ def clear_active_list(*, username: str | None = None, list_key: str | None = Non
     st.session_state.filter_signature = None
     st.session_state.show_uploader = True
     st.session_state.session_restored = False
+    clear_upload_session_state()
+    clear_citizen_widget_keys()
 
 
 def set_selected_filter(filter_value: str) -> None:
@@ -686,6 +713,13 @@ def count_by_status(df: pd.DataFrame) -> dict[str, int]:
 
 def update_citizen_status(full_df: pd.DataFrame, citizen_key: str, new_status: str) -> pd.DataFrame:
     out = full_df.copy()
+    if "Status" not in out.columns:
+        out["Status"] = DEFAULT_STATUS
+    if "Status dato" not in out.columns:
+        out["Status dato"] = ""
+    if "Ring igen dato" not in out.columns:
+        out["Ring igen dato"] = ""
+
     mask = out["_id"] == citizen_key
     if not mask.any():
         return out

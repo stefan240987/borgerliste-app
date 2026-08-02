@@ -1,6 +1,6 @@
 # Borgerflow
 
-**Version 1.5.12** — se [CHANGELOG.md](CHANGELOG.md) for ændringer og opgradering.
+**Version 1.5.15** — se [CHANGELOG.md](CHANGELOG.md) for ændringer og opgradering.
 
 Borgerflow er en webapp til **kontakt og opfølgning på borgere**. Den er målrettet teams, der arbejder med borgerlister — fx outreach, tilbud, opfølgning på henvendelser eller koordinering af telefon-/besøgskontakt.
 

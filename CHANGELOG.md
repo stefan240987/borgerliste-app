@@ -4,6 +4,24 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.15] — 2026-08-02 (GDPR-flush, mobil-sidebar og status-crash)
+
+### Rettet
+
+- **Mobil-sidebar** — sidebaren genåbnes ikke længere ved hvert klik; pin er desktop-only, og drawer lukkes efter navigation på små skærme.
+- **GDPR ved log ud** — upload-widget, upload-signatur, Excel-cache og `status_*`-widget-state flushes sammen med den aktive liste, så filer ikke genopstår efter nyt login.
+- **Zombie-upload** — tom liste + gammel fil i uploaderen tvinger ikke længere genindlæsning af GDPR-data.
+- **Status / Ring igen** — selectbox undgår session-konflikter; status-handler er afskærmet, og manglende datokolonner oprettes sikkert.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.15
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.14] — 2026-07-31 (Streng single-session validering)
 
 ### Rettet

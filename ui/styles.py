@@ -1865,12 +1865,26 @@ def inject_sidebar_controls(
             if (!cfg.ready) {{
                 cfg.ready = true;
 
+                cfg.isMobile = function() {{
+                    return !!win.matchMedia && win.matchMedia('(max-width: 768px)').matches;
+                }};
+
+                cfg.effectivePinned = function() {{
+                    // Pin er desktop-only — på mobil må sidebaren ikke genåbnes ved hvert klik.
+                    return !!cfg.pinned && !cfg.isMobile();
+                }};
+
                 cfg.isSidebarExpanded = function() {{
                     const sidebar = doc.querySelector('[data-testid="stSidebar"]');
                     return !!sidebar && sidebar.getBoundingClientRect().width > 48;
                 }};
 
                 cfg.findSidebarToggleButton = function() {{
+                    const byTestId = doc.querySelector('[data-testid="stSidebarCollapseButton"]')
+                        || doc.querySelector('[data-testid="stExpandSidebarButton"]')
+                        || doc.querySelector('[data-testid="collapsedControl"] button');
+                    if (byTestId) return byTestId;
+
                     const pickToggle = (root) => Array.from(root.querySelectorAll('button')).find((btn) => {{
                         if (btn.id === 'borgerliste-sidebar-pin') return false;
                         const label = (btn.getAttribute('aria-label') || btn.textContent || '').toLowerCase();
@@ -1881,9 +1895,6 @@ def inject_sidebar_controls(
                             || label.includes('expand')
                         );
                     }}) || null;
-
-                    const collapsed = doc.querySelector('[data-testid="collapsedControl"] button');
-                    if (collapsed) return collapsed;
 
                     const sidebar = doc.querySelector('[data-testid="stSidebar"]');
                     if (sidebar) {{
@@ -1897,7 +1908,16 @@ def inject_sidebar_controls(
                 }};
 
                 cfg.findSidebarButton = function(kind) {{
+                    if (kind === 'collapse' || kind === 'keyboard_double_arrow_left') {{
+                        const collapse = doc.querySelector('[data-testid="stSidebarCollapseButton"]');
+                        if (collapse) return collapse;
+                    }}
+                    if (kind === 'expand' || kind === 'keyboard_double_arrow_right') {{
+                        const expand = doc.querySelector('[data-testid="stExpandSidebarButton"]');
+                        if (expand) return expand;
+                    }}
                     return Array.from(doc.querySelectorAll('button')).find((btn) => {{
+                        if (btn.id === 'borgerliste-sidebar-pin') return false;
                         const label = (btn.getAttribute('aria-label') || btn.textContent || '').toLowerCase();
                         return label.includes(kind);
                     }}) || null;
@@ -1937,7 +1957,8 @@ def inject_sidebar_controls(
                         oldRow.remove();
                     }}
 
-                    if (!cfg.showPin) {{
+                    const showPin = cfg.showPin && !cfg.isMobile();
+                    if (!showPin) {{
                         doc.getElementById('borgerliste-sidebar-pin')?.remove();
                         return;
                     }}
@@ -1971,19 +1992,13 @@ def inject_sidebar_controls(
                 }};
 
                 cfg.collapseSidebar = function() {{
-                    if (cfg.pinned || !cfg.isSidebarExpanded()) return;
+                    if (cfg.effectivePinned() || !cfg.isSidebarExpanded()) return;
                     const btn = cfg.findSidebarButton('keyboard_double_arrow_left') || cfg.findSidebarButton('collapse');
                     if (btn) btn.click();
                 }};
 
-                cfg.expandSidebar = function() {{
-                    if (!cfg.pinned || cfg.isSidebarExpanded()) return;
-                    const btn = cfg.findSidebarButton('keyboard_double_arrow_right') || cfg.findSidebarButton('expand');
-                    if (btn) btn.click();
-                }};
-
                 cfg.scheduleCollapse = function() {{
-                    if (cfg.pinned) {{
+                    if (cfg.effectivePinned()) {{
                         if (cfg.timer) win.clearTimeout(cfg.timer);
                         cfg.timer = null;
                         return;
@@ -2009,13 +2024,18 @@ def inject_sidebar_controls(
 
                 cfg.refresh = function() {{
                     cfg.updatePinButton();
-                    if (cfg.pinned) {{
-                        cfg.expandSidebar();
+                    // Pin må ikke force-expande ved hvert rerun — det genåbnede mobil-sidebaren ved hvert tryk.
+                    if (cfg.effectivePinned()) {{
                         if (cfg.timer) win.clearTimeout(cfg.timer);
                         cfg.timer = null;
                         return;
                     }}
                     cfg.bindSidebarOnce();
+                    if (cfg.isMobile() && cfg.isSidebarExpanded()) {{
+                        // Efter navigation/klik: luk drawer på mobil, så den kun åbnes via toggle.
+                        cfg.collapseSidebar();
+                        return;
+                    }}
                     cfg.scheduleCollapse();
                 }};
             }}

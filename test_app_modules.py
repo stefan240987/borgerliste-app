@@ -735,6 +735,7 @@ def test_ui_styles() -> None:
         "feedback-card css",
         lambda: assert_true(
             ".feedback-card" in themed
+            and ".feedback-meta-group" in themed
             and "feedback-bug" in themed
             and "feedback-status-open" in themed
         ),
@@ -761,6 +762,7 @@ def test_ui_styles() -> None:
         "feedback_card_html",
         lambda: assert_true(
             "feedback-card" in card
+            and "feedback-meta-group" in card
             and "heidi" in card
             and "Titel" in card
             and "Beskrivelse" in card

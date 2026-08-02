@@ -46,7 +46,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.24"
+APP_VERSION = "1.5.25"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -305,6 +305,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "feedback_kind_label": "Type",
         "feedback_kind_bug": "Fejlrapport",
         "feedback_kind_suggestion": "Forbedringsforslag",
+        "feedback_status_label": "Status",
         "feedback_title_label": "Titel",
         "feedback_message_label": "Beskrivelse",
         "feedback_submit": "Send feedback",
@@ -691,6 +692,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "feedback_kind_label": "Type",
         "feedback_kind_bug": "Bug report",
         "feedback_kind_suggestion": "Improvement suggestion",
+        "feedback_status_label": "Status",
         "feedback_title_label": "Title",
         "feedback_message_label": "Description",
         "feedback_submit": "Send feedback",

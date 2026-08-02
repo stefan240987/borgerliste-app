@@ -769,12 +769,12 @@ def _render_feedback_cards(
                 message=str(entry.get("message", "")),
                 status=current_status,
                 show_username=show_username,
+                with_controls=allow_status_edit and bool(feedback_id),
             ),
             unsafe_allow_html=True,
         )
 
         if allow_status_edit and feedback_id:
-            st.markdown('<div class="feedback-card-controls">', unsafe_allow_html=True)
             selected_label = st.selectbox(
                 t("admin_feedback_status_label"),
                 list(status_labels.values()),
@@ -789,7 +789,6 @@ def _render_feedback_cards(
                     st.rerun()
                 else:
                     st.error(result_message)
-            st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 

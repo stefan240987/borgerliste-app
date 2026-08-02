@@ -78,6 +78,15 @@ def feedback_status_badge_html(status: str) -> str:
     return _admin_badge(label, f"feedback-status-{status_key}")
 
 
+def feedback_meta_group_html(label: str, badge_html: str) -> str:
+    return (
+        f'<div class="feedback-meta-group">'
+        f'<span class="feedback-meta-group-label">{html.escape(label)}</span>'
+        f"{badge_html}"
+        f"</div>"
+    )
+
+
 def feedback_card_html(
     *,
     kind: str,
@@ -87,16 +96,27 @@ def feedback_card_html(
     message: str,
     status: str = "open",
     show_username: bool = True,
+    with_controls: bool = False,
 ) -> str:
     meta_parts = [
-        feedback_kind_badge_html(kind),
-        feedback_status_badge_html(status),
-        f'<span class="feedback-card-meta-item">{html.escape(username)}</span>' if show_username and username else "",
-        f'<span class="feedback-card-meta-item">{html.escape(timestamp)}</span>' if timestamp else "",
+        feedback_meta_group_html(t("feedback_kind_label"), feedback_kind_badge_html(kind)),
+        feedback_meta_group_html(t("feedback_status_label"), feedback_status_badge_html(status)),
     ]
-    meta_html = "".join(part for part in meta_parts if part)
+    identity_bits = []
+    if show_username and username:
+        identity_bits.append(html.escape(username))
+    if timestamp:
+        identity_bits.append(html.escape(timestamp))
+    if identity_bits:
+        meta_parts.append(
+            f'<div class="feedback-card-identity">'
+            f'<span class="feedback-card-meta-item">{" · ".join(identity_bits)}</span>'
+            f"</div>"
+        )
+    meta_html = "".join(meta_parts)
+    card_class = "feedback-card feedback-card--with-controls" if with_controls else "feedback-card"
     return (
-        f'<div class="feedback-card">'
+        f'<div class="{card_class}">'
         f'<div class="feedback-card-meta">{meta_html}</div>'
         f'<div class="feedback-card-title">{html.escape(title)}</div>'
         f'<div class="feedback-card-message">{html.escape(message)}</div>'
@@ -1527,6 +1547,7 @@ def _account_section_css(scheme: str) -> str:
         metric_label = "#94A3B8"
         feedback_card_bg = "rgba(30, 41, 59, 0.55)"
         feedback_card_border = "var(--app-border, #334155)"
+        feedback_meta_group_bg = "rgba(15, 23, 42, 0.35)"
     else:
         panel_bg = "transparent"
         divider = "var(--app-border, #E7E5E4)"
@@ -1539,6 +1560,7 @@ def _account_section_css(scheme: str) -> str:
         metric_label = "#64748B"
         feedback_card_bg = "rgba(248, 250, 252, 0.9)"
         feedback_card_border = "var(--app-border, #E7E5E4)"
+        feedback_meta_group_bg = "rgba(255, 255, 255, 0.85)"
 
     return f"""
 .account-section {{
@@ -1552,18 +1574,46 @@ def _account_section_css(scheme: str) -> str:
     margin: 1.25rem 0;
 }}
 .feedback-card {{
-    margin: 0.85rem 0;
+    margin: 0.85rem 0 0;
     padding: 0.95rem 1.05rem;
     border-radius: 10px;
     border: 1px solid {feedback_card_border};
     background: {feedback_card_bg};
 }}
+.feedback-card--with-controls {{
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-bottom: 0;
+}}
 .feedback-card-meta {{
     display: flex;
     flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0.55rem;
+    margin-bottom: 0.75rem;
+}}
+.feedback-meta-group {{
+    display: inline-flex;
     align-items: center;
-    gap: 0.45rem 0.75rem;
-    margin-bottom: 0.55rem;
+    gap: 0.45rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: 8px;
+    border: 1px solid {feedback_card_border};
+    background: {feedback_meta_group_bg};
+}}
+.feedback-meta-group-label {{
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--app-text-muted);
+    white-space: nowrap;
+}}
+.feedback-card-identity {{
+    display: inline-flex;
+    align-items: center;
+    margin-left: auto;
+    padding: 0.35rem 0;
 }}
 .feedback-card-meta-item {{
     color: var(--app-text-muted);
@@ -1587,8 +1637,23 @@ def _account_section_css(scheme: str) -> str:
 .feedback-card-list {{
     margin-top: 0.35rem;
 }}
-.feedback-card-controls {{
-    margin: -0.35rem 0 1rem 0;
+div[data-testid="element-container"]:has(.feedback-card--with-controls) {{
+    margin-bottom: 0 !important;
+}}
+div[data-testid="element-container"]:has(.feedback-card--with-controls)
+  + div[data-testid="element-container"]:has([data-testid="stSelectbox"]) {{
+    margin-top: 0 !important;
+    margin-bottom: 1rem !important;
+    padding: 0.65rem 1.05rem 0.85rem;
+    border: 1px solid {feedback_card_border};
+    border-top: 1px dashed {feedback_card_border};
+    border-radius: 0 0 10px 10px;
+    background: {feedback_card_bg};
+}}
+div[data-testid="element-container"]:has(.feedback-card--with-controls)
+  + div[data-testid="element-container"]:has([data-testid="stSelectbox"])
+  [data-testid="stSelectbox"] {{
+    max-width: 18rem;
 }}
 [data-testid="stTabs"] h4 {{
     font-size: 1.05rem !important;

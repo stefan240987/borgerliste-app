@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.25] — 2026-08-02 (Feedback-kort: tydelig Type/Status-ramme)
+
+### Ændret
+
+- **Feedback-kort** — Type og Status vises i hver sin mærkede ramme, og status-vælgeren for admin sidder visuelt som en del af samme kort.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.25
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.24] — 2026-08-02 (Feedback-status: åben/lukket/implementeret/afvist)
 
 ### Tilføjet

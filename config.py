@@ -39,7 +39,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.18"
+APP_VERSION = "1.5.19"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -135,34 +135,55 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "theme_light": "Lyst tema",
         "theme_dark": "Mørkt tema",
         "theme_browser": "Følger system (lys/mørk)",
-        "gdpr_title": "Privatliv og datasikkerhed",
+        "gdpr_title": "Privatliv og datasikkerhed i Borgerflow",
         "gdpr_text": (
-            "Borgerdata gemmes krypteret lokalt på denne enhed eller server. "
-            "Del ikke filer med personoplysninger uden for jeres sikre kanaler."
+            "Borgerflow hjælper os med at holde styr på borgerkontakt på en tryg og overskuelig måde. "
+            "Denne side forklarer i et sprog, der er til at forstå, hvordan vi passer på borgerens "
+            "oplysninger, og hvad du som bruger skal være opmærksom på."
         ),
-        "gdpr_purpose": "**Formål:** Opfølgning på borgerkontakt (navn, adresse, telefon og kontaktstatus).",
-        "gdpr_legal_basis": (
-            "**Behandlingsgrundlag:** Behandles af den dataansvarlige organisation "
-            "(typisk offentlig opgave eller legitim interesse). Appen indsamler ikke samtykke direkte fra borgere."
+        "gdpr_section_roles": (
+            "### 1. Hvem har ansvaret? (Roller & GDPR)\n\n"
+            "- **Dataansvarlig:** Det er vores organisation, der har ansvaret for borgerens data "
+            "og for at have hjemmel (lovligt grundlag) til kontakten.\n"
+            "- **Systemets rolle:** Borgerflow er alene det digitale arbejdsredskab. "
+            "Appen spørger ikke borgeren om samtykke — det håndteres af organisationen."
         ),
-        "gdpr_data_types": (
-            "**Data:** Navn, adresse, telefonnummer og kontaktstatus. "
-            "Personnummer vises midlertidigt i sessionen ved upload, men gemmes aldrig."
+        "gdpr_section_data": (
+            "### 2. Hvilke oplysninger gemmer vi (og hvad gemmer vi IKKE)?\n\n"
+            "- **Persondata:** Navn, adresse og telefonnummer (gemmes krypteret).\n"
+            "- **Kontakthistorik:** Status (fx *Ikke kontaktet*, *Accepteret*, *Ring igen*) "
+            "samt dato og historik for opkald.\n"
+            "- **CPR-numre gemmes ALDRIG:** Hvis en uploadet fil indeholder CPR-nummer, bruges det "
+            "kun i et splintsekund under selve uploadet til at kontrollere dubletter. "
+            "Det gemmes aldrig på serveren eller i databasen."
         ),
-        "gdpr_rights": (
-            "**Dine rettigheder:** Indsigt, berigtigelse, sletning og dataportabilitet kan håndteres "
-            "via eksport/sletning pr. borger og kontakt til jeres dataansvarlige."
+        "gdpr_section_security": (
+            "### 3. Hvor sikkert er systemet? (Teknikken kort fortalt)\n\n"
+            "- **Lokal og krypteret lagring:** Data gemmes på organisationens egen lukkede server "
+            "(Docker-volume) og sendes aldrig til eksterne cloud-tjenester eller ud af landet. "
+            "Persondata er krypteret i hvile (Fernet).\n"
+            "- **Personligt login:** Alle har eget login med et stærkt, hashet kodeord (PBKDF2). "
+            "Du bliver automatisk logget ud ved inaktivitet.\n"
+            "- **Sporbarhed (Audit-log):** For at overholde reglerne om dokumentation gemmer systemet "
+            "en log over, hvem der ændrer en borgerstatus og hvornår."
         ),
-        "gdpr_retention_info": "**Opbevaring:** Borgerdata slettes automatisk efter den konfigurerede periode uden aktivitet.",
-        "gdpr_security_info": (
-            "**Sikkerhed:** Adgangskontrol, kryptering i hvile, sessionsstyring og audit-log. "
-            "Brug HTTPS i produktion (`BORGERLISTE_COOKIE_SECURE=true`)."
+        "gdpr_section_rights": (
+            "### 4. Sletning og borgerens rettigheder (Audit & Retention)\n\n"
+            "- **Automatisk oprydning:** Borgere, der har været inaktive i en valgt periode "
+            "(standard 24 mdr.), slettes automatisk.\n"
+            "- **Retten til at blive glemt & Indsigt:** Administratorer kan med få klik eksportere "
+            "en borgers data (JSON) eller slette borgeren permanent.\n"
+            "- **Behandlingsfortegnelse (Art. 30):** Administratorer har adgang til en færdig oversigt "
+            "over databehandlingen, som kan fremvises ved tilsyn."
         ),
-        "gdpr_shared_register": (
-            "**Delt statusregister:** Autoriserede brugere deler kontaktstatus via et fælles master-register "
-            "for at genkende borgere på tværs af lister."
+        "gdpr_section_checklist": (
+            "### 5. Tjekliste til dig som bruger (Sikker adfærd)\n\n"
+            "- 🔒 Tjek at adresselinjen viser HTTPS (hængelås).\n"
+            "- 🔑 Del aldrig dit password med kolleger — alle skal have deres eget login.\n"
+            "- 📁 Slet Excel-filer fra din egen computer, når du har uploadet dem til Borgerflow.\n"
+            "- 💾 Husk at IT/driftsansvarlig skal tage regelmæssig, krypteret backup "
+            "af serverens `/data`-mappe."
         ),
-        "gdpr_contact": "**Kontakt:** Henvendelser om persondata rettes til jeres dataansvarlige organisation.",
         "gdpr_citizen_title": "Borgerrettigheder",
         "gdpr_erase_citizen": "Slet borger",
         "gdpr_erase_confirm": "Bekræft sletning",
@@ -456,34 +477,55 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "theme_light": "Light theme",
         "theme_dark": "Dark theme",
         "theme_browser": "Follow system (light/dark)",
-        "gdpr_title": "Privacy and data security",
+        "gdpr_title": "Privacy and data security in Borgerflow",
         "gdpr_text": (
-            "Citizen data is stored encrypted locally on this device or server only. "
-            "Do not share files containing personal data outside your secure channels."
+            "Borgerflow helps us keep track of citizen contact in a safe and clear way. "
+            "This page explains, in plain language, how we protect citizens' information "
+            "and what you as a user need to be aware of."
         ),
-        "gdpr_purpose": "**Purpose:** Follow-up on citizen contact (name, address, phone and contact status).",
-        "gdpr_legal_basis": (
-            "**Legal basis:** Processed by the data controller organisation "
-            "(typically public task or legitimate interest). The app does not collect consent directly from citizens."
+        "gdpr_section_roles": (
+            "### 1. Who is responsible? (Roles & GDPR)\n\n"
+            "- **Data controller:** Our organisation is responsible for the citizen's data "
+            "and for having a lawful basis for the contact.\n"
+            "- **The system's role:** Borgerflow is only the digital work tool. "
+            "The app does not ask the citizen for consent — that is handled by the organisation."
         ),
-        "gdpr_data_types": (
-            "**Data:** Name, address, phone number and contact status. "
-            "National ID (CPR) is shown temporarily in the session on upload but is never stored."
+        "gdpr_section_data": (
+            "### 2. What information do we store (and what do we NOT store)?\n\n"
+            "- **Personal data:** Name, address and phone number (stored encrypted).\n"
+            "- **Contact history:** Status (e.g. *Not contacted*, *Accepted*, *Call again*) "
+            "as well as date and call history.\n"
+            "- **National ID (CPR) is NEVER stored:** If an uploaded file contains a CPR number, "
+            "it is used only for a split second during the upload itself to check for duplicates. "
+            "It is never stored on the server or in the database."
         ),
-        "gdpr_rights": (
-            "**Your rights:** Access, rectification, erasure and portability can be handled "
-            "via per-citizen export/erase and contact with your data controller."
+        "gdpr_section_security": (
+            "### 3. How secure is the system? (The tech in brief)\n\n"
+            "- **Local and encrypted storage:** Data is stored on the organisation's own closed server "
+            "(Docker volume) and is never sent to external cloud services or outside the country. "
+            "Personal data is encrypted at rest (Fernet).\n"
+            "- **Personal login:** Everyone has their own login with a strong, hashed password (PBKDF2). "
+            "You are automatically logged out after inactivity.\n"
+            "- **Traceability (audit log):** To meet documentation requirements, the system keeps a log "
+            "of who changes a citizen status and when."
         ),
-        "gdpr_retention_info": "**Retention:** Citizen data is automatically deleted after the configured inactivity period.",
-        "gdpr_security_info": (
-            "**Security:** Access control, encryption at rest, session management and audit log. "
-            "Use HTTPS in production (`BORGERLISTE_COOKIE_SECURE=true`)."
+        "gdpr_section_rights": (
+            "### 4. Erasure and citizens' rights (Audit & Retention)\n\n"
+            "- **Automatic clean-up:** Citizens who have been inactive for a chosen period "
+            "(default 24 months) are deleted automatically.\n"
+            "- **Right to be forgotten & access:** Administrators can export a citizen's data (JSON) "
+            "or permanently delete the citizen in a few clicks.\n"
+            "- **Records of processing (Art. 30):** Administrators have access to a ready-made overview "
+            "of the processing, which can be presented at an audit."
         ),
-        "gdpr_shared_register": (
-            "**Shared status register:** Authorised users share contact status via a common master register "
-            "to recognise citizens across lists."
+        "gdpr_section_checklist": (
+            "### 5. Checklist for you as a user (Safe behaviour)\n\n"
+            "- 🔒 Check that the address bar shows HTTPS (padlock).\n"
+            "- 🔑 Never share your password with colleagues — everyone must have their own login.\n"
+            "- 📁 Delete Excel files from your own computer once you have uploaded them to Borgerflow.\n"
+            "- 💾 Remember that IT/operations must take regular, encrypted backups "
+            "of the server's `/data` folder."
         ),
-        "gdpr_contact": "**Contact:** Personal data enquiries should be directed to your data controller organisation.",
         "gdpr_citizen_title": "Citizen rights",
         "gdpr_erase_citizen": "Delete citizen",
         "gdpr_erase_confirm": "Confirm deletion",

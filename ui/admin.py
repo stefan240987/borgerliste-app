@@ -566,14 +566,11 @@ def render_admin_master_section() -> None:
 
 def render_gdpr_privacy_section() -> None:
     st.markdown(t("gdpr_text"))
-    st.markdown(t("gdpr_purpose"))
-    st.markdown(t("gdpr_legal_basis"))
-    st.markdown(t("gdpr_data_types"))
-    st.markdown(t("gdpr_rights"))
-    st.markdown(t("gdpr_retention_info"))
-    st.markdown(t("gdpr_security_info"))
-    st.markdown(t("gdpr_shared_register"))
-    st.markdown(t("gdpr_contact"))
+    st.markdown(t("gdpr_section_roles"))
+    st.markdown(t("gdpr_section_data"))
+    st.markdown(t("gdpr_section_security"))
+    st.markdown(t("gdpr_section_rights"))
+    st.markdown(t("gdpr_section_checklist"))
 
 
 def render_user_activity_section() -> None:

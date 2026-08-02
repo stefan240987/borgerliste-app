@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.19] — 2026-08-02 (Privatlivsside — letlæselig GDPR-tekst)
+
+### Ændret
+
+- **Privatliv og datasikkerhed** — opdateret oplysningsside med pædagogiske, audit-parate sektioner (roller, data, sikkerhed, rettigheder, brugertjekliste) på dansk og engelsk. Ingen ændring af backend, audit, upload eller eksport.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.19
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.18] — 2026-08-02 (Én ad gangen i pagination)
 
 ### Tilføjet

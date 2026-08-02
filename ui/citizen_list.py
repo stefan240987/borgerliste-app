@@ -456,6 +456,9 @@ def render_citizen_card(row: pd.Series) -> None:
         personnummer = repair_text(row.get("Personnummer", ""))
         if personnummer:
             st.markdown(citizen_field_html(t("col_personnummer"), personnummer), unsafe_allow_html=True)
+        indsats_navn = repair_text(row.get("Indsats navn", ""))
+        if indsats_navn:
+            st.markdown(citizen_field_html(t("col_indsats_navn"), indsats_navn), unsafe_allow_html=True)
         st.markdown(citizen_field_html(t("col_address"), row["Adresse"]), unsafe_allow_html=True)
         st.markdown(citizen_field_html(t("col_phone"), row["Telefonnummer"]), unsafe_allow_html=True)
 

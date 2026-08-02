@@ -4,6 +4,22 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.26] — 2026-08-02 (Indsats navn i session)
+
+### Tilføjet
+
+- **Indsats navn på borgerkort** — feltet udtrækkes fra upload (fx `Indsats navn`, `indsats_navn`) når det findes på listen, og vises midlertidigt på borgerkortet.
+- **Session-only håndtering** — indsats navn gemmes aldrig på disk (aktiv liste, master-register, historik, audit, Excel-eksport), samme mønster som personnummer.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.26
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.25] — 2026-08-02 (Feedback-kort: tydelig Type/Status-ramme)
 
 ### Ændret

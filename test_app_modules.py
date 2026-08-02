@@ -130,6 +130,20 @@ def test_data_io() -> None:
         lambda: assert_false("Personnummer" in standardize_dataframe(read_csv_bytes(csv)[0]).columns),
     )
 
+    indsats_csv = (
+        b"Navn,Adresse,Telefonnummer,Indsats navn\n"
+        b"Anna,Gade 1,12345678,\xc2\xa7 10 Forl\xc3\xb8b Moc\n"
+    )
+    indsats_df = standardize_dataframe(read_csv_bytes(indsats_csv)[0])
+    check(
+        "standardize_dataframe with Indsats navn",
+        lambda: assert_eq(indsats_df.iloc[0]["Indsats navn"], "§ 10 Forløb Moc"),
+    )
+    check(
+        "standardize_dataframe without Indsats navn",
+        lambda: assert_false("Indsats navn" in standardize_dataframe(read_csv_bytes(csv)[0]).columns),
+    )
+
 
 def test_matching() -> None:
     print("\n== matching ==")
@@ -189,11 +203,16 @@ def test_matching() -> None:
 
     cpr_row = pd.Series({
         "Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678",
-        "Personnummer": "010190-1234", "Status": "Ikke kontaktet endnu",
+        "Personnummer": "010190-1234", "Indsats navn": "§ 10 Forløb Moc",
+        "Status": "Ikke kontaktet endnu",
     })
     check(
         "master_register_entry_from_row excludes Personnummer",
         lambda: assert_false("Personnummer" in master_register_entry_from_row(cpr_row)),
+    )
+    check(
+        "master_register_entry_from_row excludes Indsats navn",
+        lambda: assert_false("Indsats navn" in master_register_entry_from_row(cpr_row)),
     )
 
     from unittest.mock import patch
@@ -245,6 +264,7 @@ def test_storage_encryption() -> None:
         [{
             "Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678",
             "Personnummer": "010190-1234",
+            "Indsats navn": "§ 10 Forløb Moc",
             "Status": "Ikke kontaktet endnu", "Status dato": "", "Ring igen dato": "", "_id": "abc123",
         }]
     )
@@ -253,8 +273,16 @@ def test_storage_encryption() -> None:
         lambda: assert_false("Personnummer" in strip_transient_columns(cpr_df).columns),
     )
     check(
+        "strip_transient_columns strips Indsats navn",
+        lambda: assert_false("Indsats navn" in strip_transient_columns(cpr_df).columns),
+    )
+    check(
         "encrypt_df_pii strips Personnummer",
         lambda: assert_false("Personnummer" in encrypt_df_pii(cpr_df).columns),
+    )
+    check(
+        "encrypt_df_pii strips Indsats navn",
+        lambda: assert_false("Indsats navn" in encrypt_df_pii(cpr_df).columns),
     )
 
 
@@ -843,6 +871,7 @@ def test_excel_export() -> None:
         [{
             "Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678",
             "Personnummer": "010190-1234",
+            "Indsats navn": "§ 10 Forløb Moc",
             "Status": "Ikke kontaktet endnu", "Status dato": "01-01-2026", "Ring igen dato": "",
         }]
     )
@@ -850,6 +879,10 @@ def test_excel_export() -> None:
     check(
         "to_excel_bytes excludes Personnummer",
         lambda: assert_false(b"010190" in to_excel_bytes(df)),
+    )
+    check(
+        "to_excel_bytes excludes Indsats navn",
+        lambda: assert_false("Forløb Moc".encode("utf-8") in to_excel_bytes(df)),
     )
 
 

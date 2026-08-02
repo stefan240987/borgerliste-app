@@ -207,6 +207,10 @@ def standardize_dataframe(raw: pd.DataFrame) -> pd.DataFrame:
     if personnummer_col is not None:
         df["Personnummer"] = raw[personnummer_col].map(repair_text)
 
+    indsats_col = find_transient_column(raw, "Indsats navn")
+    if indsats_col is not None:
+        df["Indsats navn"] = raw[indsats_col].map(repair_text)
+
     df = df[df["Navn"].str.len() > 0].reset_index(drop=True)
     return df
 

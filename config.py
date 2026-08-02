@@ -46,7 +46,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.25"
+APP_VERSION = "1.5.26"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -491,6 +491,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_short_call_again": "Ring igen (6 mdr.)",
         "col_name": "Navn",
         "col_personnummer": "Personnummer",
+        "col_indsats_navn": "Indsats navn",
         "col_address": "Adresse",
         "col_phone": "Telefonnummer",
         "col_status": "Status",
@@ -878,6 +879,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_short_call_again": "Call again (6 mo.)",
         "col_name": "Name",
         "col_personnummer": "National ID (CPR)",
+        "col_indsats_navn": "Intervention name",
         "col_address": "Address",
         "col_phone": "Phone number",
         "col_status": "Status",
@@ -946,8 +948,11 @@ TRANSIENT_COLUMN_ALIASES = {
     "Personnummer": [
         "personnummer", "cpr", "cpr-nr.", "cpr-nr", "cpr nr", "cpr nr.",
     ],
+    "Indsats navn": [
+        "indsats navn", "indsats_navn", "indsatsnavn",
+    ],
 }
-TRANSIENT_COLUMNS = ("Personnummer",)
+TRANSIENT_COLUMNS = ("Personnummer", "Indsats navn")
 DISPLAY_COLUMNS = [
     "Navn", "Adresse", "Telefonnummer", "Status", "Status dato", "Ring igen dato",
 ]

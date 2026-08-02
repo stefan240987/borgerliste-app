@@ -39,6 +39,7 @@ fi
 git add -u -- \
   app.py auth.py config.py matching.py storage.py data_io.py i18n.py licensing.py \
   requirements.txt Dockerfile CHANGELOG.md README.md SERVER_DEPLOYMENT.md \
+  UNRAID_DOCKER_TEMPLATE.md \
   test_app_modules.py setup_and_run.py docker-entrypoint.sh \
   .env.example .gitignore .dockerignore \
   "Start Borgerliste.bat" "Start Borgerliste.command" \
@@ -46,6 +47,7 @@ git add -u -- \
 
 git add -- \
   scripts/ ui/ assets/ .github/ \
+  UNRAID_DOCKER_TEMPLATE.md \
   .streamlit/config.toml .streamlit/secrets.toml.example 2>/dev/null || true
 
 if [[ -d .cursor/rules ]]; then

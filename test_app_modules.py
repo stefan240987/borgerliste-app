@@ -667,7 +667,9 @@ def test_storage_gdpr_helpers() -> None:
 
     from storage import (
         _history_entry_matches_row,
+        _history_entry_matches_row_for_erase,
         _register_entry_matches_row,
+        _register_entry_matches_row_for_erase,
         build_citizen_label_map,
         apply_data_retention,
         clear_active_list,
@@ -677,8 +679,24 @@ def test_storage_gdpr_helpers() -> None:
 
     row = pd.Series({"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678", "_id": "x"})
     entry = {"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "12345678", "Status": "Ikke kontaktet endnu"}
+    fuzzy_entry = {"Navn": "Anna", "Adresse": "Gade 1", "Telefonnummer": "99999999", "Status": "Ikke kontaktet endnu"}
     check("_history_entry_matches_row", lambda: assert_true(_history_entry_matches_row(entry, row)))
     check("_register_entry_matches_row", lambda: assert_true(_register_entry_matches_row(entry, row)))
+    check(
+        "erase match requires 3/3",
+        lambda: assert_true(_register_entry_matches_row_for_erase(entry, row)),
+    )
+    check(
+        "erase match rejects 2/3 fuzzy",
+        lambda: assert_false(_register_entry_matches_row_for_erase(fuzzy_entry, row)),
+    )
+    check(
+        "erase history match requires 3/3",
+        lambda: assert_true(
+            _history_entry_matches_row_for_erase(entry, row)
+            and not _history_entry_matches_row_for_erase(fuzzy_entry, row)
+        ),
+    )
     check("configured_retention_months", lambda: assert_true(configured_retention_months() >= 0))
     check("build_citizen_label_map", lambda: assert_true(isinstance(build_citizen_label_map(), dict)))
     check("apply_data_retention", lambda: assert_true(apply_data_retention() >= 0))
@@ -863,6 +881,73 @@ def test_release_notes() -> None:
         "release_body",
         lambda: assert_true(len(release_body(APP_VERSION)) > 20),
     )
+
+
+def test_security_gdpr_hardening() -> None:
+    print("\n== security / GDPR hardening ==")
+    from unittest.mock import patch
+
+    from config import DEFAULT_PUBLIC_SIGNUP_ENABLED, TRANSLATIONS
+    from storage import (
+        append_audit_log,
+        erase_citizen_data,
+        load_audit_log,
+        public_signup_enabled,
+        save_app_settings,
+    )
+
+    check("DEFAULT_PUBLIC_SIGNUP_ENABLED is False", lambda: assert_false(DEFAULT_PUBLIC_SIGNUP_ENABLED))
+    save_app_settings(public_signup_enabled=None)
+    previous_signup_env = os.environ.pop("BORGERLISTE_PUBLIC_SIGNUP_ENABLED", None)
+    try:
+        check("public_signup_enabled default off", lambda: assert_false(public_signup_enabled()))
+    finally:
+        if previous_signup_env is not None:
+            os.environ["BORGERLISTE_PUBLIC_SIGNUP_ENABLED"] = previous_signup_env
+
+    row = pd.Series(
+        {
+            "Navn": "Sikkerhedstest",
+            "Adresse": "Testvej 1",
+            "Telefonnummer": "11223344",
+            "_id": "sec-erase-1",
+            "Status": "Ikke kontaktet endnu",
+        }
+    )
+    with patch("auth.is_admin", return_value=False), patch("storage._auth_current_user", return_value={"username": "u", "role": "user"}):
+        denied = erase_citizen_data(row)
+    check("erase_citizen_data denies non-admin", lambda: assert_false(denied))
+
+    with patch("auth.is_admin", return_value=True), patch(
+        "storage._auth_current_user", return_value={"username": "admin", "role": "admin"}
+    ), patch("storage._auth_current_username", return_value="admin"):
+        allowed = erase_citizen_data(row)
+    check("erase_citizen_data allows admin", lambda: assert_true(allowed))
+
+    with patch("storage._auth_current_user", return_value={"username": "admin", "role": "admin"}), patch(
+        "storage._auth_current_username", return_value="admin"
+    ):
+        append_audit_log(action="citizen_export", citizen_id="sec-erase-1")
+        append_audit_log(action="login_failed", username="nobody")
+    actions = {entry.get("action") for entry in load_audit_log()}
+    check(
+        "audit log records security actions",
+        lambda: assert_true("citizen_export" in actions and "login_failed" in actions and "citizen_erase" in actions),
+    )
+
+    da = TRANSLATIONS["da"]
+    en = TRANSLATIONS["en"]
+    check(
+        "gdpr rights text mentions admin erase",
+        lambda: assert_true("Kun administratorer" in da["gdpr_section_rights"] and "Only administrators" in en["gdpr_section_rights"]),
+    )
+    check(
+        "gdpr data text mentions session CPR",
+        lambda: assert_true(
+            "aktive session" in da["gdpr_section_data"] and "active session" in en["gdpr_section_data"]
+        ),
+    )
+    check("unraid guide exists", lambda: assert_true((ROOT / "UNRAID_DOCKER_TEMPLATE.md").exists()))
 
 
 def test_excel_export() -> None:
@@ -1072,6 +1157,7 @@ def main() -> int:
     test_storage_gdpr_helpers()
     test_feedback_storage()
     test_ui_styles()
+    test_security_gdpr_hardening()
     test_excel_export()
     test_citizen_list_helpers()
 

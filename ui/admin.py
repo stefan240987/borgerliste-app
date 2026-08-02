@@ -23,9 +23,9 @@ from matching import (
 )
 from storage import (
     append_feedback, build_citizen_label_map, configured_retention_months,
-    configured_session_idle_minutes, configured_trial_days, load_audit_log, load_feedback,
-    load_feedback_for_user, public_signup_enabled, save_app_settings, trial_system_enabled,
-    update_feedback_status,
+    configured_session_idle_minutes, configured_trial_days, encryption_key_is_auto_managed,
+    load_audit_log, load_feedback, load_feedback_for_user, public_signup_enabled,
+    save_app_settings, trial_system_enabled, update_feedback_status,
 )
 from ui.common import account_tab_specs, inject_account_tab_url_sync, resolve_account_tab_default_label
 from ui.styles import (
@@ -34,8 +34,8 @@ from ui.styles import (
 )
 
 _ADMIN_USER_COL_WEIGHTS = [2.0, 1.0, 1.0, 1.3, 1.0, 1.0]
-_AUDIT_COL_WEIGHTS_ADMIN = [1.5, 1.0, 2.0, 1.0, 1.0]
-_AUDIT_COL_WEIGHTS_USER = [1.5, 2.0, 1.0, 1.0]
+_AUDIT_COL_WEIGHTS_ADMIN = [1.4, 1.0, 1.2, 1.6, 1.0, 1.0]
+_AUDIT_COL_WEIGHTS_USER = [1.4, 1.2, 1.6, 1.0, 1.0]
 
 
 def _feedback_kind_label(kind: str) -> str:
@@ -67,6 +67,12 @@ def _account_inline_form_marker() -> None:
     st.markdown('<div class="account-inline-form-marker"></div>', unsafe_allow_html=True)
 
 
+def _audit_action_label(action: str) -> str:
+    key = f"audit_action_{action}"
+    label = t(key)
+    return label if label != key else (action or "status_change")
+
+
 def _render_audit_table(
     entries: list[dict],
     labels: dict[str, str],
@@ -75,9 +81,22 @@ def _render_audit_table(
 ) -> None:
     weights = _AUDIT_COL_WEIGHTS_ADMIN if show_user else _AUDIT_COL_WEIGHTS_USER
     header_keys = (
-        ("admin_audit_col_time", "admin_audit_col_user", "admin_audit_col_citizen", "admin_audit_col_from", "admin_audit_col_to")
+        (
+            "admin_audit_col_time",
+            "admin_audit_col_user",
+            "admin_audit_col_action",
+            "admin_audit_col_citizen",
+            "admin_audit_col_from",
+            "admin_audit_col_to",
+        )
         if show_user
-        else ("admin_audit_col_time", "admin_audit_col_citizen", "admin_audit_col_from", "admin_audit_col_to")
+        else (
+            "admin_audit_col_time",
+            "admin_audit_col_action",
+            "admin_audit_col_citizen",
+            "admin_audit_col_from",
+            "admin_audit_col_to",
+        )
     )
 
     header_cols = st.columns(weights)
@@ -89,7 +108,8 @@ def _render_audit_table(
 
     for entry in entries:
         citizen_id = str(entry.get("citizen_id", ""))
-        citizen_label = labels.get(citizen_id, citizen_id)
+        citizen_label = labels.get(citizen_id, citizen_id) if citizen_id else (str(entry.get("detail", "")) or "—")
+        action = str(entry.get("action") or "status_change")
         old_status = str(entry.get("old_status", ""))
         new_status = str(entry.get("new_status", ""))
         cols = st.columns(weights)
@@ -109,14 +129,29 @@ def _render_audit_table(
             col_idx += 1
 
         cols[col_idx].markdown(
+            f'<div class="account-table-row">{html.escape(_audit_action_label(action))}</div>',
+            unsafe_allow_html=True,
+        )
+        col_idx += 1
+
+        cols[col_idx].markdown(
             f'<div class="account-table-row">{html.escape(citizen_label)}</div>',
             unsafe_allow_html=True,
         )
         col_idx += 1
 
-        cols[col_idx].markdown(status_pill_html(old_status), unsafe_allow_html=True)
-        col_idx += 1
-        cols[col_idx].markdown(status_pill_html(new_status), unsafe_allow_html=True)
+        if action == "status_change" and (old_status or new_status):
+            cols[col_idx].markdown(status_pill_html(old_status), unsafe_allow_html=True)
+            col_idx += 1
+            cols[col_idx].markdown(status_pill_html(new_status), unsafe_allow_html=True)
+        else:
+            detail = str(entry.get("detail", "")) or "—"
+            cols[col_idx].markdown(
+                f'<div class="account-table-row">{html.escape(detail)}</div>',
+                unsafe_allow_html=True,
+            )
+            col_idx += 1
+            cols[col_idx].markdown('<div class="account-table-row">—</div>', unsafe_allow_html=True)
 
 
 def render_profile_section() -> None:
@@ -187,6 +222,8 @@ def render_profile_section() -> None:
 
 def render_admin_settings_section() -> None:
     st.markdown('<div class="account-panel">', unsafe_allow_html=True)
+    if encryption_key_is_auto_managed():
+        st.warning(t("admin_encryption_key_warning"))
 
     st.markdown(f"#### {t('admin_session_title')}")
     current_minutes = configured_session_idle_minutes()
@@ -558,6 +595,7 @@ def render_admin_master_section() -> None:
 
     st.markdown('<div class="account-panel">', unsafe_allow_html=True)
     st.caption(t("master_admin_description"))
+    st.info(t("master_shared_register_notice"))
     st.markdown(
         (
             f'<div class="account-metric-inline">'

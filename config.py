@@ -46,9 +46,9 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.28"
+APP_VERSION = "1.5.29"
 DEFAULT_TRIAL_DAYS = 14
-DEFAULT_PUBLIC_SIGNUP_ENABLED = True
+DEFAULT_PUBLIC_SIGNUP_ENABLED = False
 MIN_TRIAL_DAYS = 1
 MAX_TRIAL_DAYS = 365
 SIDEBAR_AUTO_COLLAPSE_SECONDS = 10
@@ -160,9 +160,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "- **Persondata:** Navn, adresse og telefonnummer (gemmes krypteret).\n"
             "- **Kontakthistorik:** Status (fx *Ikke kontaktet*, *Accepteret*, *Ring igen*) "
             "samt dato og historik for opkald.\n"
-            "- **CPR-numre gemmes ALDRIG:** Hvis en uploadet fil indeholder CPR-nummer, bruges det "
-            "kun i et splintsekund under selve uploadet til at kontrollere dubletter. "
-            "Det gemmes aldrig på serveren eller i databasen."
+            "- **CPR / personnummer:** Hvis uploaden indeholder CPR, vises det i den aktive session "
+            "til borgeridentifikation og dubletcheck. CPR gemmes **aldrig** på disk og fjernes "
+            "automatisk ved logud og session-timeout.\n"
+            "- **Fælles master-register:** Status og identifikationsfelter (navn, by, telefon) "
+            "synkroniseres til et fælles register for denne installation, så samme borger kan "
+            "genkendes på tværs af brugeres lister."
         ),
         "gdpr_section_security": (
             "### 3. Hvor sikkert er systemet? (Teknikken kort fortalt)\n\n"
@@ -178,8 +181,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "### 4. Sletning og borgerens rettigheder (Audit & Retention)\n\n"
             "- **Automatisk oprydning:** Borgere, der har været inaktive i en valgt periode "
             "(standard 24 mdr.), slettes automatisk.\n"
-            "- **Retten til at blive glemt & Indsigt:** Administratorer kan med få klik eksportere "
-            "en borgers data (JSON) eller slette borgeren permanent.\n"
+            "- **Indsigt og portabilitet:** Autoriserede brugere kan eksportere data for en borger "
+            "på deres egen liste (JSON).\n"
+            "- **Retten til at blive glemt:** Kun administratorer kan slette en borger permanent "
+            "fra hele systemet (master-register, historik og alle brugeres lister).\n"
             "- **Behandlingsfortegnelse (Art. 30):** Administratorer har adgang til en færdig oversigt "
             "over databehandlingen, som kan fremvises ved tilsyn."
         ),
@@ -187,6 +192,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "### 5. Tjekliste til dig som bruger (Sikker adfærd)\n\n"
             "- 🔒 Tjek at adresselinjen viser HTTPS (hængelås).\n"
             "- 🔑 Del aldrig dit password med kolleger — alle skal have deres eget login.\n"
+            "- 🪪 Undgå skærmdeling og shoulder surfing, når CPR er synligt på skærmen. Log ud efter brug.\n"
             "- 📁 Slet Excel-filer fra din egen computer, når du har uploadet dem til Borgerflow.\n"
             "- 💾 Husk at IT/driftsansvarlig skal tage regelmæssig, krypteret backup "
             "af serverens `/data`-mappe."
@@ -197,8 +203,34 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gdpr_erase_cancel": "Annuller",
         "gdpr_erase_warning": "Sletter permanent alle data om denne borger. Kan ikke fortrydes.",
         "gdpr_erase_done": "Borger slettet.",
+        "gdpr_erase_admin_only": "Kun administratorer kan slette borgerdata.",
         "gdpr_export_citizen": "Eksporter data (JSON)",
         "gdpr_export_filename": "borger_{citizen_id}.json",
+        "gdpr_export_logged": "Eksport registreret i status-loggen.",
+        "signup_failed_generic": "Kunne ikke oprette konto. Prøv et andet brugernavn, eller kontakt en administrator.",
+        "bootstrap_admin_password_required": (
+            "Første administrator kan ikke oprettes automatisk. "
+            "Sæt BORGERLISTE_ADMIN_PASSWORD (min. 12 tegn) og genstart appen."
+        ),
+        "admin_encryption_key_warning": (
+            "Krypteringsnøgle er auto-oprettet i datamappen. "
+            "I produktion bør BORGERLISTE_ENCRYPTION_KEY sættes eksplicit og backupsikres."
+        ),
+        "master_shared_register_notice": (
+            "Master-registeret er fælles for hele installationen: status og identifikationsfelter "
+            "deles mellem alle brugere. Anbefaling: én organisation pr. installation, og lav DPIA "
+            "hvis flere teams/kommuner deler samme app."
+        ),
+        "admin_audit_col_action": "Handling",
+        "audit_action_status_change": "Statusændring",
+        "audit_action_citizen_export": "Eksport",
+        "audit_action_citizen_erase": "Sletning",
+        "audit_action_login_success": "Login OK",
+        "audit_action_login_failed": "Login fejl",
+        "audit_action_signup_created": "Konto oprettet",
+        "audit_action_admin_password_reset": "Adgangskode nulstillet",
+        "audit_action_admin_user_deactivated": "Bruger deaktiveret",
+        "audit_action_master_register_cleared": "Master slettet",
         "account_activity_tab": "Min aktivitet",
         "account_admin_gdpr_tab": "GDPR",
         "admin_retention_title": "Dataopbevaring",
@@ -223,11 +255,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "|---|---|\n"
             "| Behandlingsaktivitet | Opfølgning på borgerkontakt |\n"
             "| Kategorier af registrerede | Borgere på kontaktliste |\n"
-            "| Kategorier af personoplysninger | Navn, adresse, telefon, kontaktstatus "
-            "(CPR behandles kun midlertidigt i upload-sessionen og gemmes ikke) |\n"
-            "| Modtagere | Autoriserede app-brugere i organisationen |\n"
+            "| Kategorier af personoplysninger | Navn, by/adresse, telefon, kontaktstatus; "
+            "CPR kun midlertidigt i aktiv session til identifikation (gemmes ikke) |\n"
+            "| Fælles register | Master-register deler status og identifikationsfelter "
+            "på tværs af alle app-brugere i denne installation |\n"
+            "| Modtagere | Autoriserede app-brugere i installationen |\n"
             "| Overførsler til tredjelande | Ingen |\n"
             "| Opbevaring | {retention} |\n"
+            "| Sletning (Art. 17) | Kun administratorer |\n"
+            "| Eksport (Art. 15/20) | Autoriserede brugere for borgere på egen liste |\n"
             "| Tekniske foranstaltninger | Login, kryptering, adgangskontrol, audit-log |"
         ),
         "user_audit_title": "Min aktivitet",
@@ -459,7 +495,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_audit_col_citizen": "Borger",
         "admin_audit_col_from": "Fra",
         "admin_audit_col_to": "Til",
-        "master_admin_description": "Master-registeret samler statusser fra alle brugeres lister.",
+        "master_admin_description": (
+            "Master-registeret samler statusser fra alle brugeres lister i denne installation."
+        ),
         "master_delete_admin_only": "Kun administratorer kan slette master-registeret.",
         "master_delete_not_configured": "Kun administratorer kan slette master-registeret.",
         "login_title": "Log ind",
@@ -550,9 +588,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "- **Personal data:** Name, address and phone number (stored encrypted).\n"
             "- **Contact history:** Status (e.g. *Not contacted*, *Accepted*, *Call again*) "
             "as well as date and call history.\n"
-            "- **National ID (CPR) is NEVER stored:** If an uploaded file contains a CPR number, "
-            "it is used only for a split second during the upload itself to check for duplicates. "
-            "It is never stored on the server or in the database."
+            "- **National ID (CPR):** If the upload contains a CPR number, it is shown in the "
+            "active session for citizen identification and duplicate checks. CPR is **never** "
+            "stored on disk and is removed on sign-out and session timeout.\n"
+            "- **Shared master register:** Status and identity fields (name, city, phone) are "
+            "synced to a shared register for this installation so the same citizen can be "
+            "recognised across users' lists."
         ),
         "gdpr_section_security": (
             "### 3. How secure is the system? (The tech in brief)\n\n"
@@ -568,8 +609,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "### 4. Erasure and citizens' rights (Audit & Retention)\n\n"
             "- **Automatic clean-up:** Citizens who have been inactive for a chosen period "
             "(default 24 months) are deleted automatically.\n"
-            "- **Right to be forgotten & access:** Administrators can export a citizen's data (JSON) "
-            "or permanently delete the citizen in a few clicks.\n"
+            "- **Access and portability:** Authorised users can export data for a citizen on "
+            "their own list (JSON).\n"
+            "- **Right to be forgotten:** Only administrators can permanently delete a citizen "
+            "from the whole system (master register, history and all users' lists).\n"
             "- **Records of processing (Art. 30):** Administrators have access to a ready-made overview "
             "of the processing, which can be presented at an audit."
         ),
@@ -577,6 +620,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "### 5. Checklist for you as a user (Safe behaviour)\n\n"
             "- 🔒 Check that the address bar shows HTTPS (padlock).\n"
             "- 🔑 Never share your password with colleagues — everyone must have their own login.\n"
+            "- 🪪 Avoid screen sharing and shoulder surfing when CPR is visible. Sign out after use.\n"
             "- 📁 Delete Excel files from your own computer once you have uploaded them to Borgerflow.\n"
             "- 💾 Remember that IT/operations must take regular, encrypted backups "
             "of the server's `/data` folder."
@@ -587,8 +631,34 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gdpr_erase_cancel": "Cancel",
         "gdpr_erase_warning": "Permanently deletes all data about this citizen. Cannot be undone.",
         "gdpr_erase_done": "Citizen deleted.",
+        "gdpr_erase_admin_only": "Only administrators can delete citizen data.",
         "gdpr_export_citizen": "Export data (JSON)",
         "gdpr_export_filename": "citizen_{citizen_id}.json",
+        "gdpr_export_logged": "Export recorded in the status log.",
+        "signup_failed_generic": "Could not create account. Try another username, or contact an administrator.",
+        "bootstrap_admin_password_required": (
+            "The first administrator cannot be created automatically. "
+            "Set BORGERLISTE_ADMIN_PASSWORD (min. 12 characters) and restart the app."
+        ),
+        "admin_encryption_key_warning": (
+            "The encryption key was auto-created in the data directory. "
+            "In production, set BORGERLISTE_ENCRYPTION_KEY explicitly and back it up securely."
+        ),
+        "master_shared_register_notice": (
+            "The master register is shared across this installation: status and identity fields "
+            "are shared between all users. Recommendation: one organisation per installation, "
+            "and complete a DPIA if multiple teams/municipalities share the same app."
+        ),
+        "admin_audit_col_action": "Action",
+        "audit_action_status_change": "Status change",
+        "audit_action_citizen_export": "Export",
+        "audit_action_citizen_erase": "Erasure",
+        "audit_action_login_success": "Login OK",
+        "audit_action_login_failed": "Login failed",
+        "audit_action_signup_created": "Account created",
+        "audit_action_admin_password_reset": "Password reset",
+        "audit_action_admin_user_deactivated": "User deactivated",
+        "audit_action_master_register_cleared": "Master cleared",
         "account_activity_tab": "My activity",
         "account_admin_gdpr_tab": "GDPR",
         "admin_retention_title": "Data retention",
@@ -613,11 +683,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "|---|---|\n"
             "| Processing activity | Citizen contact follow-up |\n"
             "| Data subject categories | Citizens on contact list |\n"
-            "| Personal data categories | Name, address, phone, contact status "
-            "(CPR is only processed temporarily in the upload session and is not stored) |\n"
-            "| Recipients | Authorised app users in the organisation |\n"
+            "| Personal data categories | Name, city/address, phone, contact status; "
+            "CPR only temporarily in the active session for identification (not stored) |\n"
+            "| Shared register | Master register shares status and identity fields "
+            "across all app users in this installation |\n"
+            "| Recipients | Authorised app users in the installation |\n"
             "| Transfers to third countries | None |\n"
             "| Retention | {retention} |\n"
+            "| Erasure (Art. 17) | Administrators only |\n"
+            "| Export (Art. 15/20) | Authorised users for citizens on their own list |\n"
             "| Technical measures | Login, encryption, access control, audit log |"
         ),
         "user_audit_title": "My activity",
@@ -849,7 +923,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_audit_col_citizen": "Citizen",
         "admin_audit_col_from": "From",
         "admin_audit_col_to": "To",
-        "master_admin_description": "The master register collects statuses from all users' lists.",
+        "master_admin_description": (
+            "The master register collects statuses from all users' lists in this installation."
+        ),
         "master_delete_admin_only": "Only administrators can delete the master register.",
         "master_delete_not_configured": "Only administrators can delete the master register.",
         "login_title": "Sign in",

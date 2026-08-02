@@ -1,6 +1,6 @@
 # Borgerflow
 
-**Version 1.5.18** — se [CHANGELOG.md](CHANGELOG.md) for ændringer og opgradering.
+**Version 1.5.29** — se [CHANGELOG.md](CHANGELOG.md) for ændringer og opgradering.
 
 Borgerflow er en webapp til **kontakt og opfølgning på borgere**. Den er målrettet teams, der arbejder med borgerlister — fx outreach, tilbud, opfølgning på henvendelser eller koordinering af telefon-/besøgskontakt.
 
@@ -110,7 +110,9 @@ docker run -d \
 
 ## Installér på Unraid
 
-### Docker UI (nemmest)
+Se den fulde trin-for-trin guide: [UNRAID_DOCKER_TEMPLATE.md](UNRAID_DOCKER_TEMPLATE.md) (ny skabelon, miljøvariabler, volume og opgradering uden datatab).
+
+### Hurtig Docker UI
 
 1. **Docker → Add Container**
 2. Udfyld:
@@ -118,15 +120,18 @@ docker run -d \
 | Felt | Værdi |
 |------|--------|
 | Name | `borgerliste-app` |
-| Repository | `ghcr.io/stefan240987/borgerliste-app:latest` |
+| Repository | `ghcr.io/stefan240987/borgerliste-app:1.5.29` (eller `:latest`) |
 | Network Type | `bridge` |
-| Port | Host `8501` → Container `8501` |
+| Port | Host `8501` → Container `8501` (TCP) |
 | Path | Host `/mnt/user/appdata/borgerliste-data` → Container `/data` |
 | Variable | `BORGERLISTE_DATA_DIR` = `/data` |
-| Variable | `BORGERLISTE_ADMIN_PASSWORD` = stærk admin-adgangskode |
+| Variable | `BORGERLISTE_ADMIN_USERNAME` = `admin` |
+| Variable | `BORGERLISTE_ADMIN_PASSWORD` = stærk adgangskode (min. 12 tegn) |
+| Variable | `BORGERLISTE_PUBLIC_SIGNUP_ENABLED` = `false` |
+| Variable | `BORGERLISTE_COOKIE_SECURE` = `true` (kun bag HTTPS) |
 
 3. **Apply** og start containeren
-4. Åbn `http://<unraid-ip>:8501`
+4. Åbn `http://<unraid-ip>:8501` (eller via reverse proxy)
 
 ### GHCR-adgang
 
@@ -162,13 +167,17 @@ Se [SERVER_DEPLOYMENT.md](SERVER_DEPLOYMENT.md) for mere om server-deploy og rev
 
 - Borgerdata gemmes i `/data` i containeren (Docker-volume `borgerliste_data`)
 - Persondata (navn, adresse, telefon) krypteres i hvile
-- Commit **aldrig** `data/`, `.env` eller `.streamlit/secrets.toml`
-- Sæt **stærk admin-adgangskode** i `.env` før produktion
-- Kun administratorer kan slette master-registeret (kræver admin-adgangskode)
-- Login er rate-limited efter gentagne fejl
+- **Master-registeret er fælles** for hele installationen (status genkendes på tværs af brugere). Anbefaling: én organisation pr. installation; overvej DPIA hvis flere teams deler samme app
+- CPR/personnummer kan vises i aktiv session til identifikation, men **gemmes ikke** og flushes ved logud/timeout
+- Commit **aldrig** `data/`, `.env` eller `.streamlit/secrets.toml` (brug heller ikke `secrets.toml` i produktion — brug env-variabler)
+- Sæt **stærk admin-adgangskode** i `.env` / Unraid før produktion (påkrævet i Docker)
+- Selvbetjent signup er **slået fra** som standard (`BORGERLISTE_PUBLIC_SIGNUP_ENABLED=false`)
+- Kun administratorer kan slette borgerdata (Art. 17) og master-registeret
+- Login er rate-limited (IP + brugernavn) efter gentagne fejl
 - Session cookie holder dig logget ind ved browser-genindlæsning (standard: 24 timers inaktivitet, max 30 dage)
 - Konfigurer med `BORGERLISTE_SESSION_IDLE_MINUTES` og `BORGERLISTE_SESSION_MAX_DAYS` i `.env`
-- Bag HTTPS reverse proxy: sæt `BORGERLISTE_COOKIE_SECURE=true` i `.env`
+- Bag HTTPS reverse proxy: sæt `BORGERLISTE_COOKIE_SECURE=true` i `.env`; sæt kun `BORGERLISTE_TRUST_PROXY=true` bag en trusted proxy
+- Anbefal `BORGERLISTE_ENCRYPTION_KEY` i produktion (ellers auto-nøgle i `/data`)
 - Eksponér ikke port 8501 direkte mod internettet — brug Nginx Proxy Manager, Swag, Caddy eller tilsvarende
 
 ## Backup

@@ -251,6 +251,8 @@ def clear_master_register() -> None:
     if not is_admin():
         raise PermissionError(t("master_delete_admin_only"))
 
+    from storage import append_audit_log
+
     if STATUS_HISTORY_PATH.exists():
         STATUS_HISTORY_PATH.unlink()
 
@@ -280,6 +282,8 @@ def clear_master_register() -> None:
 
     save_master_register([], cleared=True)
     clear_active_list()
+    # Log efter wipe, så hændelsen ikke slettes sammen med den gamle audit-fil.
+    append_audit_log(action="master_register_cleared")
 
 
 def find_master_register_match(row: pd.Series, register: list[dict]) -> dict | None:

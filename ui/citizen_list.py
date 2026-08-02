@@ -13,7 +13,7 @@ from config import (
     PAGE_SIZE_OPTIONS, STATUSES, STATUS_HISTORY_PATH, STATUS_TO_FILTER,
     MASTER_REFERENCE_REGISTER_PATH, AUDIT_LOG_PATH,
 )
-from auth import current_user, current_username
+from auth import current_user, current_username, is_admin
 from data_io import read_uploaded_file, repair_text, standardize_dataframe
 from i18n import (
     filter_button_label, filter_label, page_size_label, status_label, t,
@@ -25,7 +25,7 @@ from matching import (
 )
 from storage import (
     _data_file_lock, _read_json_raw, _safe_storage_key, _touch_master_sync_stamp,
-    _write_text_atomic, apply_saved_statuses, clear_citizen_widget_keys,
+    _write_text_atomic, append_audit_log, apply_saved_statuses, clear_citizen_widget_keys,
     collect_citizen_data_export, count_by_status, dataframe_to_state, erase_citizen_data,
     list_storage_key, load_saved_state, save_active_list, save_state, set_selected_filter,
     storage_path, update_citizen_status, upsert_history_entry,
@@ -405,10 +405,12 @@ def persist_citizen_status_change(
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "username": current_username(),
         "role": current_user().get("role", "user") if current_user() else "user",
+        "action": "status_change",
         "citizen_id": str(updated_row["_id"]),
         "old_status": old_status,
         "new_status": str(updated_row["Status"]),
         "list_key": list_key,
+        "detail": "",
     }
 
     with _data_file_lock(shared=False):
@@ -545,31 +547,38 @@ def render_citizen_card(row: pd.Series) -> None:
 
         with st.expander(t("gdpr_citizen_title"), expanded=False):
             export_payload = collect_citizen_data_export(row)
-            st.download_button(
+            if st.download_button(
                 t("gdpr_export_citizen"),
                 data=json.dumps(export_payload, ensure_ascii=False, indent=2).encode("utf-8"),
                 file_name=t("gdpr_export_filename", citizen_id=str(row["_id"])),
                 mime="application/json",
                 key=f"export_{row['_id']}",
                 use_container_width=True,
-            )
-            confirm_key = f"erase_confirm_{row['_id']}"
-            if st.session_state.get(confirm_key):
-                st.warning(t("gdpr_erase_warning"))
-                col_cancel, col_confirm = st.columns(2)
-                with col_cancel:
-                    if st.button(t("gdpr_erase_cancel"), key=f"erase_cancel_{row['_id']}", use_container_width=True):
-                        st.session_state.pop(confirm_key, None)
-                        st.rerun()
-                with col_confirm:
-                    if st.button(t("gdpr_erase_confirm"), key=f"erase_confirm_btn_{row['_id']}", use_container_width=True):
-                        erase_citizen_data(row)
-                        st.session_state.pop(confirm_key, None)
-                        st.toast(t("gdpr_erase_done"), icon="✅")
-                        st.rerun()
-            elif st.button(t("gdpr_erase_citizen"), key=f"erase_{row['_id']}", use_container_width=True):
-                st.session_state[confirm_key] = True
-                st.rerun()
+            ):
+                append_audit_log(
+                    action="citizen_export",
+                    citizen_id=str(row["_id"]),
+                    list_key=st.session_state.get("list_key"),
+                )
+            if is_admin():
+                confirm_key = f"erase_confirm_{row['_id']}"
+                if st.session_state.get(confirm_key):
+                    st.warning(t("gdpr_erase_warning"))
+                    col_cancel, col_confirm = st.columns(2)
+                    with col_cancel:
+                        if st.button(t("gdpr_erase_cancel"), key=f"erase_cancel_{row['_id']}", use_container_width=True):
+                            st.session_state.pop(confirm_key, None)
+                            st.rerun()
+                    with col_confirm:
+                        if st.button(t("gdpr_erase_confirm"), key=f"erase_confirm_btn_{row['_id']}", use_container_width=True):
+                            if erase_citizen_data(row):
+                                st.session_state.pop(confirm_key, None)
+                                st.toast(t("gdpr_erase_done"), icon="✅")
+                                st.rerun()
+                            st.error(t("gdpr_erase_admin_only"))
+                elif st.button(t("gdpr_erase_citizen"), key=f"erase_{row['_id']}", use_container_width=True):
+                    st.session_state[confirm_key] = True
+                    st.rerun()
 
 
 def render_citizen_list(page_slice: pd.DataFrame) -> None:

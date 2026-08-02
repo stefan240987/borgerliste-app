@@ -11,8 +11,8 @@ import streamlit.components.v1 as components
 from config import *  # noqa: F403
 from i18n import t
 from storage import (
-    _chmod_sensitive, _cookie_secure_flag, _load_json_file, _save_json_file, clear_active_list,
-    delete_user_data, load_app_settings, public_signup_enabled, save_app_settings,
+    _chmod_sensitive, _cookie_secure_flag, _load_json_file, _save_json_file, append_audit_log,
+    clear_active_list, delete_user_data, load_app_settings, public_signup_enabled, save_app_settings,
     configured_session_idle_minutes, session_idle_timeout_seconds,
 )
 
@@ -80,6 +80,16 @@ def get_default_admin_password() -> str | None:
     return None
 
 
+def _require_configured_admin_password() -> bool:
+    """Produktion-lignende miljø: kræv eksplicit admin-password (ingen plaintext bootstrap-fil)."""
+    flag = os.environ.get("BORGERLISTE_REQUIRE_ADMIN_PASSWORD", "").strip().lower()
+    if flag in ("1", "true", "yes", "on"):
+        return True
+    if flag in ("0", "false", "no", "off"):
+        return False
+    return str(DATA_DIR) == "/data"
+
+
 def ensure_default_admin() -> None:
     users = load_users()
     if users:
@@ -89,6 +99,9 @@ def ensure_default_admin() -> None:
     password = get_default_admin_password()
     bootstrap_password = False
     if not password:
+        if _require_configured_admin_password():
+            st.session_state["_bootstrap_notice_text"] = t("bootstrap_admin_password_required")
+            return
         password = secrets.token_urlsafe(16)
         bootstrap_password = True
 
@@ -184,6 +197,10 @@ def deactivate_user_account(username: str, *, delete_data: bool = False) -> tupl
         return False, t("admin_user_invalid", min=MIN_PASSWORD_LENGTH)
     save_users(users)
     revoke_user_sessions(username)
+    append_audit_log(
+        action="admin_user_deactivated",
+        detail=f"target={username.strip()};delete_data={bool(delete_data)}",
+    )
     if delete_data:
         delete_user_data(username)
         return True, t("admin_user_deactivated_data_deleted", username=username)
@@ -302,6 +319,7 @@ def admin_reset_user_password(username: str, new_password: str) -> tuple[bool, s
             break
     save_users(users)
     revoke_user_sessions(username)
+    append_audit_log(action="admin_password_reset", detail=f"target={username.strip()}")
     return True, t("admin_password_reset_done", username=username)
 
 
@@ -370,51 +388,69 @@ def _save_login_attempts(data: dict[str, dict]) -> None:
     _chmod_sensitive(LOGIN_ATTEMPTS_PATH)
 
 
-def check_auth_rate_limit(*, action: str = "login") -> tuple[bool, int]:
-    client = _client_ip()
+def _rate_limit_keys(*, action: str = "login", username: str | None = None) -> list[str]:
+    keys = [f"{action}:ip:{_client_ip()}"]
+    clean = (username or "").strip().lower()
+    if clean:
+        keys.append(f"{action}:user:{clean[:64]}")
+    return keys
+
+
+def check_auth_rate_limit(*, action: str = "login", username: str | None = None) -> tuple[bool, int]:
     attempts = _load_login_attempts()
-    entry = attempts.get(client, {})
-    locked_until = float(entry.get("locked_until", 0))
     now = datetime.now().timestamp()
-    if locked_until > now:
-        return False, max(1, int((locked_until - now + 59) // 60))
-    if locked_until and locked_until <= now:
-        attempts.pop(client, None)
+    wait_minutes = 0
+    changed = False
+    for key in _rate_limit_keys(action=action, username=username):
+        entry = attempts.get(key, {})
+        locked_until = float(entry.get("locked_until", 0))
+        if locked_until > now:
+            wait_minutes = max(wait_minutes, max(1, int((locked_until - now + 59) // 60)))
+        elif locked_until and locked_until <= now:
+            attempts.pop(key, None)
+            changed = True
+    if changed:
         _save_login_attempts(attempts)
+    if wait_minutes:
+        return False, wait_minutes
     return True, 0
 
 
-def check_login_rate_limit() -> tuple[bool, int]:
-    return check_auth_rate_limit(action="login")
+def check_login_rate_limit(*, username: str | None = None) -> tuple[bool, int]:
+    return check_auth_rate_limit(action="login", username=username)
 
 
-def record_failed_auth(*, action: str = "login") -> None:
-    client = _client_ip()
+def record_failed_auth(*, action: str = "login", username: str | None = None) -> None:
     attempts = _load_login_attempts()
-    entry = attempts.get(client, {"count": 0})
-    count = int(entry.get("count", 0)) + 1
-    payload: dict[str, object] = {"count": count, "last_failed": datetime.now().isoformat(timespec="seconds")}
-    if count >= LOGIN_MAX_ATTEMPTS:
-        payload["locked_until"] = datetime.now().timestamp() + LOGIN_LOCKOUT_SECONDS
-        payload["count"] = 0
-    attempts[client] = payload
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    for key in _rate_limit_keys(action=action, username=username):
+        entry = attempts.get(key, {"count": 0})
+        count = int(entry.get("count", 0)) + 1
+        payload: dict[str, object] = {"count": count, "last_failed": now_iso}
+        if count >= LOGIN_MAX_ATTEMPTS:
+            payload["locked_until"] = datetime.now().timestamp() + LOGIN_LOCKOUT_SECONDS
+            payload["count"] = 0
+        attempts[key] = payload
     _save_login_attempts(attempts)
 
 
-def record_failed_login() -> None:
-    record_failed_auth(action="login")
+def record_failed_login(*, username: str | None = None) -> None:
+    record_failed_auth(action="login", username=username)
 
 
-def clear_auth_attempts(*, action: str = "login") -> None:
-    client = _client_ip()
+def clear_auth_attempts(*, action: str = "login", username: str | None = None) -> None:
     attempts = _load_login_attempts()
-    if client in attempts:
-        attempts.pop(client, None)
+    changed = False
+    for key in _rate_limit_keys(action=action, username=username):
+        if key in attempts:
+            attempts.pop(key, None)
+            changed = True
+    if changed:
         _save_login_attempts(attempts)
 
 
-def clear_login_attempts() -> None:
-    clear_auth_attempts(action="login")
+def clear_login_attempts(*, username: str | None = None) -> None:
+    clear_auth_attempts(action="login", username=username)
 
 
 def verify_admin_master_delete(password: str) -> bool:
@@ -859,20 +895,26 @@ def _render_login_card_block(*, allowed: bool) -> None:
 
 
 def _process_login_submit(username: str, password: str) -> None:
+    allowed, minutes = check_login_rate_limit(username=username)
+    if not allowed:
+        st.error(t("login_locked_out", minutes=minutes))
+        return
     account = authenticate_user(username, password)
     if account:
-        clear_login_attempts()
+        clear_login_attempts(username=username)
         token = create_persistent_session(account, sync_cookie=False)
         st.session_state.auth_token = token
         st.session_state.authenticated = True
         st.session_state.current_user = account
+        append_audit_log(action="login_success", username=account["username"])
         if BOOTSTRAP_ADMIN_PATH.exists() and username.strip().lower() == account["username"].lower():
             try:
                 BOOTSTRAP_ADMIN_PATH.unlink()
             except OSError:
                 pass
         st.rerun()
-    record_failed_login()
+    record_failed_login(username=username)
+    append_audit_log(action="login_failed", username=username.strip()[:64] or "unknown")
     st.error(t("login_error"))
 
 
@@ -954,14 +996,19 @@ def _render_signup_form() -> None:
 
         ok, message = create_user_account(username, password, role="user")
         if ok:
-            clear_auth_attempts(action="signup")
+            clear_auth_attempts(action="signup", username=username)
+            append_audit_log(action="signup_created", username=username.strip())
             st.session_state.pop("session_expired_notice", None)
             st.session_state._signup_success_notice = True
             st.session_state._login_active_tab = t("login_tab")
             st.session_state._signup_form_version = form_version + 1
             st.rerun()
-        record_failed_auth(action="signup")
-        st.error(message)
+        record_failed_auth(action="signup", username=username)
+        # Undgå username-enumeration ved eksisterende brugernavn.
+        if message == t("admin_user_exists"):
+            st.error(t("signup_failed_generic"))
+        else:
+            st.error(message)
 
 
 def render_login() -> bool:

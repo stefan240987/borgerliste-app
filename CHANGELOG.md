@@ -4,6 +4,34 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.29] — 2026-08-02 (GDPR- og sikkerhedshærdning)
+
+### Tilføjet
+
+- **Sikkerheds-/GDPR-audit-events** — status-loggen dækker nu også eksport, sletning, login, signup, admin-handlinger og master-wipe (uden PII).
+- **Unraid Docker-skabelon-guide** — [UNRAID_DOCKER_TEMPLATE.md](UNRAID_DOCKER_TEMPLATE.md) med miljøvariabler, volume og opgradering uden datatab.
+
+### Ændret
+
+- **Signup default off** — `DEFAULT_PUBLIC_SIGNUP_ENABLED=false` (kan aktiveres i admin eller via env).
+- **Art. 17-sletning kun admin** — UI og server kræver administrator; retention-job kører stadig som system.
+- **Strengere sletningsmatch** — master/historik kræver 3/3-match (eller eksakt citizen-id), ikke 2/3 fuzzy.
+- **Docker kræver admin-password** — ingen plaintext bootstrap-fil når data-dir er `/data` (kan overrides).
+- **Rate-limit pr. IP og brugernavn** — bedre beskyttelse bag reverse proxy.
+- **Privatlivs-/Art. 30-tekster** — CPR i aktiv session, fælles master-register, admin-only sletning og bruger-export.
+- **Signup** — generisk fejl ved eksisterende brugernavn (mindre enumeration).
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.29
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+På Unraid: følg [UNRAID_DOCKER_TEMPLATE.md](UNRAID_DOCKER_TEMPLATE.md) — genbrug samme `/data`-path og sæt `BORGERLISTE_ADMIN_PASSWORD`.
+
+---
+
 ## [1.5.28] — 2026-08-02 (KPI følger indsats-filter)
 
 ### Ændret

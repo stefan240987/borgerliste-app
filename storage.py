@@ -122,6 +122,15 @@ def _save_json_file(path: Path, payload: object) -> None:
         _write_text_atomic(path, content)
 
 
+def encryption_key_from_env() -> bool:
+    return bool(os.environ.get("BORGERLISTE_ENCRYPTION_KEY", "").strip())
+
+
+def encryption_key_is_auto_managed() -> bool:
+    """True når nøglen ikke kommer fra env (auto-fil eller nyoprettet)."""
+    return not encryption_key_from_env()
+
+
 def _get_or_create_encryption_key() -> bytes:
     env_key = os.environ.get("BORGERLISTE_ENCRYPTION_KEY", "").strip()
     if env_key:
@@ -840,20 +849,26 @@ def _sanitize_audit_entry(entry: dict) -> dict:
 
 def append_audit_log(
     *,
-    citizen_id: str,
-    old_status: str,
-    new_status: str,
-    list_key: str | None,
+    citizen_id: str = "",
+    old_status: str = "",
+    new_status: str = "",
+    list_key: str | None = None,
+    action: str = "status_change",
+    detail: str = "",
+    username: str | None = None,
 ) -> None:
+    user = _auth_current_user()
     entry = {
         "id": secrets.token_hex(8),
         "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "username": _auth_current_username(),
-        "role": _auth_current_user().get("role", "user") if _auth_current_user() else "user",
+        "username": username if username is not None else _auth_current_username(),
+        "role": user.get("role", "user") if user else "user",
+        "action": action or "status_change",
         "citizen_id": citizen_id,
         "old_status": old_status,
         "new_status": new_status,
         "list_key": list_key,
+        "detail": detail,
     }
     entries = load_audit_log()
     entries.append(entry)
@@ -1019,6 +1034,7 @@ def _entry_activity_date(entry: dict) -> datetime:
 
 
 def _history_entry_matches_row(entry: dict, row: pd.Series) -> bool:
+    """2/3-match — bruges til opslag/export, ikke til Art. 17-sletning."""
     from matching import master_match_score
 
     if not isinstance(entry, dict):
@@ -1028,10 +1044,46 @@ def _history_entry_matches_row(entry: dict, row: pd.Series) -> bool:
 
 
 def _register_entry_matches_row(entry: dict, row: pd.Series) -> bool:
+    """2/3-match — bruges til opslag/export, ikke til Art. 17-sletning."""
     from matching import master_match_score
 
     decoded = decrypt_dict_pii(entry) if any(str(entry.get(field, "")).startswith(PII_ENC_PREFIX) for field in PII_FIELDS) else entry
     return master_match_score(row, decoded) >= 2
+
+
+def _decode_register_entry(entry: dict) -> dict:
+    if any(str(entry.get(field, "")).startswith(PII_ENC_PREFIX) for field in PII_FIELDS):
+        return decrypt_dict_pii(entry)
+    return entry
+
+
+def _register_entry_matches_row_for_erase(entry: dict, row: pd.Series) -> bool:
+    """Art. 17: eksakt citizen_id eller fuld 3/3-match — undgå fuzzy false positives."""
+    from matching import master_match_score
+
+    if not isinstance(entry, dict):
+        return False
+    decoded = _decode_register_entry(entry)
+    entry_series = pd.Series(
+        {
+            "Navn": decoded.get("Navn", ""),
+            "Adresse": decoded.get("Adresse", ""),
+            "Telefonnummer": decoded.get("Telefonnummer", ""),
+        }
+    )
+    if citizen_id(entry_series) == str(row.get("_id", "")):
+        return True
+    return master_match_score(row, decoded) >= 3
+
+
+def _history_entry_matches_row_for_erase(entry: dict, row: pd.Series) -> bool:
+    """Art. 17: kræv 3/3-match for fuzzy history-hits (eksakte keys håndteres separat)."""
+    from matching import master_match_score
+
+    if not isinstance(entry, dict):
+        return False
+    decoded = decrypt_dict_pii(entry)
+    return master_match_score(row, decoded) >= 3
 
 
 def delete_user_data(username: str) -> None:
@@ -1040,20 +1092,32 @@ def delete_user_data(username: str) -> None:
         shutil.rmtree(user_dir)
 
 
-def erase_citizen_data(row: pd.Series) -> None:
-    """Fjern én borger fra alle lagre (Art. 17 — ret til sletning)."""
+def erase_citizen_data(row: pd.Series, *, allow_system: bool = False) -> bool:
+    """Fjern én borger fra alle lagre (Art. 17 — ret til sletning).
+
+    Kun administratorer (eller system-retention via allow_system=True).
+    """
+    from auth import is_admin
     from matching import _parse_master_register_payload
+
+    if not allow_system and not is_admin():
+        return False
 
     target_id = str(row["_id"])
     history_keys = set(history_keys_for_row(row))
+    removed_register = 0
+    removed_history = 0
 
     with _data_file_lock(shared=False):
         register_payload = _read_json_raw(MASTER_REFERENCE_REGISTER_PATH, {"cleared": False, "entries": []})
         register_state = _parse_master_register_payload(register_payload)
         register = register_state["entries"]  # type: ignore[assignment]
         if isinstance(register, list):
-            filtered_register = [entry for entry in register if not _register_entry_matches_row(entry, row)]
-            if len(filtered_register) != len(register):
+            filtered_register = [
+                entry for entry in register if not _register_entry_matches_row_for_erase(entry, row)
+            ]
+            removed_register = len(register) - len(filtered_register)
+            if removed_register:
                 _write_text_atomic(
                     MASTER_REFERENCE_REGISTER_PATH,
                     json.dumps({"cleared": False, "entries": filtered_register}, ensure_ascii=False, indent=2) + "\n",
@@ -1064,9 +1128,10 @@ def erase_citizen_data(row: pd.Series) -> None:
             filtered_history = {
                 key: value
                 for key, value in history.items()
-                if key not in history_keys and not _history_entry_matches_row(value, row)
+                if key not in history_keys and not _history_entry_matches_row_for_erase(value, row)
             }
-            if len(filtered_history) != len(history):
+            removed_history = len(history) - len(filtered_history)
+            if removed_history:
                 _write_text_atomic(
                     STATUS_HISTORY_PATH,
                     json.dumps(filtered_history, ensure_ascii=False, indent=2) + "\n",
@@ -1126,6 +1191,15 @@ def erase_citizen_data(row: pd.Series) -> None:
             else:
                 save_active_list(updated)
 
+    if not allow_system:
+        append_audit_log(
+            action="citizen_erase",
+            citizen_id=target_id,
+            detail=f"register={removed_register};history={removed_history}",
+            list_key=st.session_state.get("list_key"),
+        )
+    return True
+
 
 def apply_data_retention() -> int:
     from matching import load_master_register
@@ -1149,7 +1223,7 @@ def apply_data_retention() -> int:
             }
         )
         row["_id"] = citizen_id(row)
-        erase_citizen_data(row)
+        erase_citizen_data(row, allow_system=True)
         purged += 1
     return purged
 

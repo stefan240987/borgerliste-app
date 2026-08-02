@@ -64,9 +64,16 @@ docker run --rm -v borgerliste_data:/data -v "$PWD":/backup alpine \
 
 ## Adgangskode / GDPR
 
-- Skift `BORGERLISTE_ADMIN_PASSWORD` i produktion
-- Kun administratorer kan slette master-registeret (med egen admin-adgangskode)
+- Sæt `BORGERLISTE_ADMIN_PASSWORD` (min. 12 tegn) — påkrævet i Docker; ingen plaintext bootstrap-fil på `/data`
+- Brug ikke `.streamlit/secrets.toml` i produktion; slet/rotér lokale secrets hvis de har været delt
+- `BORGERLISTE_PUBLIC_SIGNUP_ENABLED=false` som standard (kan aktiveres i admin-UI)
+- Kun administratorer kan slette borgerdata (Art. 17) og master-registeret
+- Master-registeret er fælles for installationen — én organisation pr. deployment anbefales
 - Brug HTTPS via reverse proxy (Nginx, Caddy, Traefik) i produktion
+- Sæt `BORGERLISTE_COOKIE_SECURE=true` bag HTTPS
+- Anbefal `BORGERLISTE_ENCRYPTION_KEY` (Fernet) i produktion og tag backup af nøglen sammen med `/data`
+
+Unraid-skabelon: se [UNRAID_DOCKER_TEMPLATE.md](UNRAID_DOCKER_TEMPLATE.md).
 
 ## Drift
 

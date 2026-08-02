@@ -34,6 +34,8 @@ def filter_button_label(filter_key: str) -> str:
 def page_size_label(value: int | str) -> str:
     if value == "Alle":
         return t("page_size_all")
+    if value == 1:
+        return t("page_size_one")
     return t("page_size_n", n=value)
 
 

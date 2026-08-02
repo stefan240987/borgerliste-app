@@ -59,7 +59,7 @@ STATUSES = [
     "Ring igen om 6 måneder",
 ]
 DEFAULT_STATUS = STATUSES[0]
-PAGE_SIZE_OPTIONS: list[int | str] = [10, 25, 50, 100, "Alle"]
+PAGE_SIZE_OPTIONS: list[int | str] = [1, 10, 25, 50, 100, "Alle"]
 THEME_OPTIONS = ["Lyst tema", "Mørkt tema", "Browser standard"]
 THEME_ICONS = {"Lyst tema": "☀️", "Mørkt tema": "🌙", "Browser standard": "🖥️"}
 THEME_PALETTES = {
@@ -230,8 +230,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "next": "Næste →",
         "page_empty": "Ingen borgere at vise",
         "page_info": "Side {current} af {total}",
+        "page_info_one": "Borger {current} af {total}",
         "page_size_label": "Vis pr. side",
         "page_size_all": "Alle pr. side",
+        "page_size_one": "Én ad gangen",
         "page_size_n": "{n} pr. side",
         "change_status": "Skift status",
         "last_updated": "Sidst opdateret: {date}",
@@ -549,8 +551,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "next": "Next →",
         "page_empty": "No citizens to show",
         "page_info": "Page {current} of {total}",
+        "page_info_one": "Citizen {current} of {total}",
         "page_size_label": "Rows per page",
         "page_size_all": "All rows",
+        "page_size_one": "One at a time",
         "page_size_n": "{n} per page",
         "change_status": "Change status",
         "last_updated": "Last updated: {date}",

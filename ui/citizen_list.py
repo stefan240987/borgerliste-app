@@ -301,8 +301,9 @@ def render_pagination_bar(total_rows: int, page_size: int, page_number: int) -> 
                 st.rerun()
 
         with nav_info:
+            info_key = "page_info_one" if page_size == 1 else "page_info"
             st.markdown(
-                f"<div class='page-info'>{t('page_info', current=page_number + 1, total=total_pages)}</div>",
+                f"<div class='page-info'>{t(info_key, current=page_number + 1, total=total_pages)}</div>",
                 unsafe_allow_html=True,
             )
 

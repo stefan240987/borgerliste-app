@@ -759,6 +759,7 @@ def test_citizen_list_helpers() -> None:
     check("filter_dataframe accepted", lambda: assert_eq(len(filter_dataframe(df, "accepted", "")), 1))
     check("filter_dataframe search", lambda: assert_eq(len(filter_dataframe(df, "all", "anna")), 1))
     check("resolve_page_size Alle", lambda: assert_eq(resolve_page_size("Alle", 10), 10))
+    check("resolve_page_size one", lambda: assert_eq(resolve_page_size(1, 10), 1))
     check("_coerce_uploaded_file None", lambda: assert_eq(_coerce_uploaded_file(None), None))
     check(
         "_safe_row_text missing/nan",

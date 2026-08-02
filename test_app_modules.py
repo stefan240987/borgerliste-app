@@ -967,6 +967,28 @@ def test_citizen_list_helpers() -> None:
             2,
         ),
     )
+    kpi_scoped = filter_dataframe(indsats_df, "all", "", "§ 10 Forløb Moc")
+    check(
+        "kpi scope preserves mixed statuses within indsats",
+        lambda: assert_eq(
+            sorted(kpi_scoped["Status"].tolist()),
+            ["Ikke kontaktet endnu", "Ikke kontaktet endnu"],
+        ),
+    )
+    check(
+        "kpi scope all indsats equals full list",
+        lambda: assert_eq(
+            len(filter_dataframe(indsats_df, "all", "", INDSATS_FILTER_ALL)),
+            len(indsats_df),
+        ),
+    )
+    check(
+        "status filter still combines with indsats",
+        lambda: assert_eq(
+            len(filter_dataframe(indsats_df, "accepted", "", "§ 85 Socialpædagogisk bistand")),
+            1,
+        ),
+    )
     check("resolve_page_size Alle", lambda: assert_eq(resolve_page_size("Alle", 10), 10))
     check("resolve_page_size one", lambda: assert_eq(resolve_page_size(1, 10), 1))
     check("_coerce_uploaded_file None", lambda: assert_eq(_coerce_uploaded_file(None), None))

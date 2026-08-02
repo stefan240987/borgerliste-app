@@ -127,16 +127,6 @@ def _run_app() -> None:
     st.title(t("app_title"))
     render_upload_section()
 
-    render_status_metrics(df)
-
-    st.markdown("---")
-    search = st.text_input(
-        t("search_placeholder"),
-        key="search_query",
-        placeholder=t("search_placeholder"),
-        label_visibility="collapsed",
-    )
-    selected_filter = st.session_state.get("selected_filter", "all")
     indsats_options = indsats_filter_options(df)
     if indsats_options is None:
         st.session_state.indsats_filter = INDSATS_FILTER_ALL
@@ -146,6 +136,18 @@ def _run_app() -> None:
     ):
         st.session_state.indsats_filter = INDSATS_FILTER_ALL
     indsats_filter = st.session_state.get("indsats_filter", INDSATS_FILTER_ALL)
+
+    # KPI-overblik følger indsats-filteret, men ikke status/søgning (uændret uden indsats).
+    render_status_metrics(filter_dataframe(df, "all", "", indsats_filter))
+
+    st.markdown("---")
+    search = st.text_input(
+        t("search_placeholder"),
+        key="search_query",
+        placeholder=t("search_placeholder"),
+        label_visibility="collapsed",
+    )
+    selected_filter = st.session_state.get("selected_filter", "all")
     filtered_df = filter_dataframe(df, selected_filter, search, indsats_filter)
     st.caption(t("citizens_summary", total=len(df), shown=len(filtered_df)))
 

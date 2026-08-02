@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.28] — 2026-08-02 (KPI følger indsats-filter)
+
+### Ændret
+
+- **Status-overblik** — når et indsats-navn er valgt, viser KPI-kortene (Alle / Ikke kontaktet / Accepteret / Afslået / Ring igen) kun tal for den indsats. Uden indsats-kolonne eller med “Alle indsatser” er adfærd uændret.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.28
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.27] — 2026-08-02 (Indsats-filter og By-label)
 
 ### Tilføjet

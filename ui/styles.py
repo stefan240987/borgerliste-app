@@ -1851,6 +1851,7 @@ def inject_sidebar_controls(
             const win = window.parent;
             const doc = win.document;
             const cfg = win.__borgerlisteSidebar || (win.__borgerlisteSidebar = {{}});
+            const API_VERSION = 2;
             if (cfg.pinObserver) {{
                 cfg.pinObserver.disconnect();
                 delete cfg.pinObserver;
@@ -1862,8 +1863,22 @@ def inject_sidebar_controls(
             cfg.unpinLabel = {json.dumps(unpin_label)};
             cfg.pinIcon = {json.dumps(pin_svg)};
 
+            // Geninstaller funktioner ved ny apiVersion (undgå stale expand/collapse efter deploy).
+            if (cfg.apiVersion !== API_VERSION) {{
+                if (cfg.timer) win.clearTimeout(cfg.timer);
+                cfg.timer = null;
+                cfg.apiVersion = API_VERSION;
+                cfg.ready = false;
+            }}
+
             if (!cfg.ready) {{
                 cfg.ready = true;
+
+                cfg.buttonFrom = function(root) {{
+                    if (!root) return null;
+                    if (root.tagName === 'BUTTON') return root;
+                    return root.querySelector('button');
+                }};
 
                 cfg.isMobile = function() {{
                     return !!win.matchMedia && win.matchMedia('(max-width: 768px)').matches;
@@ -1876,13 +1891,26 @@ def inject_sidebar_controls(
 
                 cfg.isSidebarExpanded = function() {{
                     const sidebar = doc.querySelector('[data-testid="stSidebar"]');
-                    return !!sidebar && sidebar.getBoundingClientRect().width > 48;
+                    if (!sidebar) return false;
+                    // Streamlit skjuler sidebaren med transform — width forbliver stor når den er lukket.
+                    const aria = sidebar.getAttribute('aria-expanded');
+                    if (aria === 'true') return true;
+                    if (aria === 'false') return false;
+                    // Fallback: synlig på skærmen (right > 0), ikke blot elementbredde.
+                    return sidebar.getBoundingClientRect().right > 8;
+                }};
+
+                cfg.findCollapseButton = function() {{
+                    return cfg.buttonFrom(doc.querySelector('[data-testid="stSidebarCollapseButton"]'));
+                }};
+
+                cfg.findExpandButton = function() {{
+                    return cfg.buttonFrom(doc.querySelector('[data-testid="stExpandSidebarButton"]'))
+                        || cfg.buttonFrom(doc.querySelector('[data-testid="collapsedControl"]'));
                 }};
 
                 cfg.findSidebarToggleButton = function() {{
-                    const byTestId = doc.querySelector('[data-testid="stSidebarCollapseButton"]')
-                        || doc.querySelector('[data-testid="stExpandSidebarButton"]')
-                        || doc.querySelector('[data-testid="collapsedControl"] button');
+                    const byTestId = cfg.findCollapseButton() || cfg.findExpandButton();
                     if (byTestId) return byTestId;
 
                     const pickToggle = (root) => Array.from(root.querySelectorAll('button')).find((btn) => {{
@@ -1905,22 +1933,6 @@ def inject_sidebar_controls(
                     const header = doc.querySelector('[data-testid="stHeader"]');
                     if (header) return pickToggle(header);
                     return null;
-                }};
-
-                cfg.findSidebarButton = function(kind) {{
-                    if (kind === 'collapse' || kind === 'keyboard_double_arrow_left') {{
-                        const collapse = doc.querySelector('[data-testid="stSidebarCollapseButton"]');
-                        if (collapse) return collapse;
-                    }}
-                    if (kind === 'expand' || kind === 'keyboard_double_arrow_right') {{
-                        const expand = doc.querySelector('[data-testid="stExpandSidebarButton"]');
-                        if (expand) return expand;
-                    }}
-                    return Array.from(doc.querySelectorAll('button')).find((btn) => {{
-                        if (btn.id === 'borgerliste-sidebar-pin') return false;
-                        const label = (btn.getAttribute('aria-label') || btn.textContent || '').toLowerCase();
-                        return label.includes(kind);
-                    }}) || null;
                 }};
 
                 cfg.triggerPinToggle = function() {{
@@ -1993,7 +2005,8 @@ def inject_sidebar_controls(
 
                 cfg.collapseSidebar = function() {{
                     if (cfg.effectivePinned() || !cfg.isSidebarExpanded()) return;
-                    const btn = cfg.findSidebarButton('keyboard_double_arrow_left') || cfg.findSidebarButton('collapse');
+                    // Kun den ægte collapse-knap — aldrig fuzzy tekst-match (kan toggle-åbne).
+                    const btn = cfg.findCollapseButton();
                     if (btn) btn.click();
                 }};
 
@@ -2012,6 +2025,8 @@ def inject_sidebar_controls(
                     const sidebar = doc.querySelector('[data-testid="stSidebar"]');
                     if (!sidebar || sidebar.dataset.autoCollapseBound === '1') return;
                     sidebar.dataset.autoCollapseBound = '1';
+                    // Hover-baseret auto-luk er kun meningsfuldt på desktop.
+                    if (cfg.isMobile()) return;
                     sidebar.addEventListener('mouseenter', () => {{
                         if (cfg.timer) win.clearTimeout(cfg.timer);
                     }});
@@ -2024,18 +2039,17 @@ def inject_sidebar_controls(
 
                 cfg.refresh = function() {{
                     cfg.updatePinButton();
-                    // Pin må ikke force-expande ved hvert rerun — det genåbnede mobil-sidebaren ved hvert tryk.
                     if (cfg.effectivePinned()) {{
                         if (cfg.timer) win.clearTimeout(cfg.timer);
                         cfg.timer = null;
                         return;
                     }}
-                    cfg.bindSidebarOnce();
-                    if (cfg.isMobile() && cfg.isSidebarExpanded()) {{
-                        // Efter navigation/klik: luk drawer på mobil, så den kun åbnes via toggle.
-                        cfg.collapseSidebar();
+                    if (cfg.isMobile()) {{
+                        // På mobil: luk kun hvis aria-expanded siger åben — ellers rør ikke knapperne.
+                        if (cfg.isSidebarExpanded()) cfg.collapseSidebar();
                         return;
                     }}
+                    cfg.bindSidebarOnce();
                     cfg.scheduleCollapse();
                 }};
             }}

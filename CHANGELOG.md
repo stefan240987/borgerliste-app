@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.16] — 2026-08-02 (Mobil-sidebar aria-expanded)
+
+### Rettet
+
+- **Mobil-sidebar** — lukket/åben detekteres via Streamlits `aria-expanded` i stedet for elementbredde (transform-skjul gav falske positives). Collapse klikker kun `stSidebarCollapseButton`, så et lukket panel ikke længere toggle-åbnes ved hvert tryk. Sidebar-JS versioneres, så stale funktioner efter deploy geninstalleres.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.16
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.15] — 2026-08-02 (GDPR-flush, mobil-sidebar og status-crash)
 
 ### Rettet

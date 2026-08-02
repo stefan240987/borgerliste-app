@@ -593,12 +593,28 @@ def test_ui_styles() -> None:
         lambda: assert_true("cfg.expandSidebar()" not in script and "effectivePinned" in script),
     )
     check(
-        "sidebar mobile collapse path",
-        lambda: assert_true("isMobile" in script and "collapseSidebar" in script and "max-width: 768px" in script),
+        "sidebar uses aria-expanded",
+        lambda: assert_true(
+            "aria-expanded" in script
+            and "width > 48" not in script
+            and "getBoundingClientRect().right > 8" in script
+        ),
     )
     check(
-        "sidebar prefers Streamlit testids",
-        lambda: assert_true("stSidebarCollapseButton" in script and "stExpandSidebarButton" in script),
+        "sidebar apiVersion reinstall",
+        lambda: assert_true("API_VERSION = 2" in script and "cfg.apiVersion !== API_VERSION" in script),
+    )
+    check(
+        "sidebar collapse only via testid",
+        lambda: assert_true(
+            "findCollapseButton" in script
+            and "stSidebarCollapseButton" in script
+            and "findSidebarButton('collapse')" not in script
+        ),
+    )
+    check(
+        "sidebar mobile collapse path",
+        lambda: assert_true("isMobile" in script and "collapseSidebar" in script and "max-width: 768px" in script),
     )
 
 

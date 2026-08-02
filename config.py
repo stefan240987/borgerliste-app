@@ -39,7 +39,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.20"
+APP_VERSION = "1.5.21"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -283,9 +283,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_borgerliste": "Borgerliste",
         "nav_account": "Min konto",
         "nav_privacy": "Privatliv og datasikkerhed",
+        "nav_about": "Om Borgerflow",
         "sidebar_pin": "Fastgør menuen, så den ikke lukker automatisk",
         "sidebar_unpin": "Menu fastgjort — klik for at frigøre",
         "account_title": "Min konto",
+        "about_title": "Om Borgerflow",
+        "about_lead": "Denne applikation er skabt til at gøre opfølgning på borgere hurtig, enkel og overskuelig. I stedet for manuelle lister og Excel-ark giver appen dig et samlet digitalt arbejdsredskab til din borgerkontakt.",
+        "about_bullet_1": "**Holde hurtigt overblik:** Se præcis hvilke borgere der mangler afklaring, har takket ja/nej eller skal ringes op igen.",
+        "about_bullet_2": "**Registrere opkald med ét klik:** Gem status og noter med det samme, så du og dine kolleger aldrig ringer forgæves eller dobbelt.",
+        "about_bullet_3": "**Sikre et smidigt borgerforløb:** Bevar overblikket over genopkald og aftaler uden risiko for, at borgere overses.",
         "account_profile_tab": "Profil",
         "account_admin_users_tab": "Brugere",
         "account_admin_master_tab": "Master-register",
@@ -410,13 +416,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "login_title": "Log ind",
         "login_tab": "Log ind",
         "login_hero_subtitle": "Effektiv borgerkontakt og opfølgning",
-        "intro_title": "Velkommen til Borgerflow",
-        "intro_lead": "Denne applikation er skabt til at gøre opfølgning på borgere hurtig, enkel og overskuelig. I stedet for manuelle lister og Excel-ark giver appen dig et samlet digitalt arbejdsredskab til din borgerkontakt.",
-        "intro_bullet_1": "**Holde hurtigt overblik:** Se præcis hvilke borgere der mangler afklaring, har takket ja/nej eller skal ringes op igen.",
-        "intro_bullet_2": "**Registrere opkald med ét klik:** Gem status og noter med det samme, så du og dine kolleger aldrig ringer forgæves eller dobbelt.",
-        "intro_bullet_3": "**Sikre et smidigt borgerforløb:** Bevar overblikket over genopkald og aftaler uden risiko for, at borgere overses.",
-        "intro_btn_login": "Log ind",
-        "intro_btn_back": "← Tilbage til information",
         "login_caption": "Sikker adgang til borger- og kontaktadministration",
         "login_password": "Adgangskode",
         "login_submit": "Log ind",
@@ -631,9 +630,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_borgerliste": "Citizen list",
         "nav_account": "My account",
         "nav_privacy": "Privacy and data security",
+        "nav_about": "About Borgerflow",
         "sidebar_pin": "Pin menu to keep it open",
         "sidebar_unpin": "Menu pinned — click to unpin",
         "account_title": "My account",
+        "about_title": "About Borgerflow",
+        "about_lead": "This application is designed to make citizen follow-up fast, simple and clear. Instead of manual lists and Excel spreadsheets, the app gives you a unified digital tool for your citizen contact.",
+        "about_bullet_1": "**Keep a quick overview:** See exactly which citizens need clarification, have said yes/no, or need to be called again.",
+        "about_bullet_2": "**Log calls with one click:** Save status and notes instantly, so you and your colleagues never call in vain or twice.",
+        "about_bullet_3": "**Ensure a smooth citizen journey:** Keep track of callbacks and appointments without risking that citizens are overlooked.",
         "account_profile_tab": "Profile",
         "account_admin_users_tab": "Users",
         "account_admin_master_tab": "Master register",
@@ -758,13 +763,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "login_title": "Sign in",
         "login_tab": "Sign in",
         "login_hero_subtitle": "Effective citizen contact and follow-up",
-        "intro_title": "Welcome to Borgerflow",
-        "intro_lead": "This application is designed to make citizen follow-up fast, simple and clear. Instead of manual lists and Excel spreadsheets, the app gives you a unified digital tool for your citizen contact.",
-        "intro_bullet_1": "**Keep a quick overview:** See exactly which citizens need clarification, have said yes/no, or need to be called again.",
-        "intro_bullet_2": "**Log calls with one click:** Save status and notes instantly, so you and your colleagues never call in vain or twice.",
-        "intro_bullet_3": "**Ensure a smooth citizen journey:** Keep track of callbacks and appointments without risking that citizens are overlooked.",
-        "intro_btn_login": "Sign in",
-        "intro_btn_back": "← Back to information",
         "login_caption": "Secure access to citizen and contact administration",
         "login_password": "Password",
         "login_submit": "Sign in",

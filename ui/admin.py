@@ -673,6 +673,14 @@ def render_privacy_page() -> None:
     render_gdpr_privacy_section()
 
 
+def render_about_page() -> None:
+    st.title(t("about_title"))
+    st.markdown(t("about_lead"))
+    st.markdown(f"- {t('about_bullet_1')}")
+    st.markdown(f"- {t('about_bullet_2')}")
+    st.markdown(f"- {t('about_bullet_3')}")
+
+
 def render_account_page() -> None:
     st.title(t("account_title"))
     if purged := st.session_state.pop("retention_purged_count", None):

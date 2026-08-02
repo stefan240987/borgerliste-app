@@ -8,14 +8,14 @@ from auth import (
 from i18n import t
 from licensing import is_trial_expired
 from storage import DataLockTimeoutError, ensure_user_data_loaded, save_active_session_metadata
-from ui.admin import render_account_page, render_privacy_page
+from ui.admin import render_about_page, render_account_page, render_privacy_page
 from ui.trial_expired import render_trial_expired_page
 from ui.citizen_list import (
     filter_dataframe, render_citizen_list, render_pagination_bar, render_status_metrics,
     render_upload_section, resolve_page_size, sync_session_df_with_master,
 )
 from ui.common import (
-    finish_page, init_session_state, render_page_navigation, render_sidebar_content,
+    INFO_PAGES, finish_page, init_session_state, render_page_navigation, render_sidebar_content,
     render_sidebar_settings, restore_navigation_from_query_params,
 )
 from ui.styles import inject_styles
@@ -68,6 +68,8 @@ def _run_app() -> None:
             render_account_page()
         elif active_page == "privacy":
             render_privacy_page()
+        elif active_page == "about":
+            render_about_page()
         else:
             render_trial_expired_page()
         finish_page(show_pin=True)
@@ -81,7 +83,7 @@ def _run_app() -> None:
     render_page_navigation()
 
     df = st.session_state.citizens_df
-    if st.session_state.get("active_page") not in ("account", "privacy") and (df is None or df.empty):
+    if st.session_state.get("active_page") not in INFO_PAGES and (df is None or df.empty):
         st.title(t("app_title"))
         st.caption(t("app_subtitle"))
         render_upload_section()
@@ -105,6 +107,11 @@ def _run_app() -> None:
 
     if st.session_state.get("active_page") == "privacy":
         render_privacy_page()
+        finish_page(show_pin=True)
+        return
+
+    if st.session_state.get("active_page") == "about":
+        render_about_page()
         finish_page(show_pin=True)
         return
 

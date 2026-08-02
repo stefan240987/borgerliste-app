@@ -810,7 +810,6 @@ def logout_user(*, username: str | None = None, token: str | None = None) -> Non
     st.session_state.active_page = "borgerliste"
     st.session_state.account_tab = "profile"
     st.session_state.user_data_loaded_for = None
-    st.session_state.show_login_card = False
     for key in ("page", "tab"):
         if key in st.query_params:
             del st.query_params[key]
@@ -830,22 +829,6 @@ def _login_logo_html() -> str:
     )
 
 
-def _render_intro_page() -> None:
-    st.markdown(
-        f'<div class="login-hero">{_login_logo_html()}'
-        f'<p class="login-brand-title">{html.escape(t("intro_title"))}</p>'
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(t("intro_lead"))
-    st.markdown(f"- {t('intro_bullet_1')}")
-    st.markdown(f"- {t('intro_bullet_2')}")
-    st.markdown(f"- {t('intro_bullet_3')}")
-    if st.button(t("intro_btn_login"), type="primary", use_container_width=True, key="intro_show_login"):
-        st.session_state.show_login_card = True
-        st.rerun()
-
-
 def _render_login_card_block(*, allowed: bool) -> None:
     st.markdown(
         f'<div class="login-hero">{_login_logo_html()}'
@@ -854,10 +837,6 @@ def _render_login_card_block(*, allowed: bool) -> None:
         f"</div>",
         unsafe_allow_html=True,
     )
-
-    if st.button(t("intro_btn_back"), type="secondary", key="intro_back_to_info"):
-        st.session_state.show_login_card = False
-        st.rerun()
 
     if not allowed:
         return
@@ -1007,16 +986,9 @@ def render_login() -> bool:
         return False
 
     session_expired = st.session_state.pop("session_expired_notice", False)
-    if session_expired:
-        st.session_state.show_login_card = True
 
     if notice := st.session_state.pop("_bootstrap_notice_text", None):
         st.info(notice)
-
-    if st.session_state.get("_login_active_tab"):
-        st.session_state.show_login_card = True
-
-    st.session_state.setdefault("show_login_card", False)
 
     allowed, minutes = check_login_rate_limit()
     st.markdown('<div id="login-page-anchor"></div>', unsafe_allow_html=True)
@@ -1029,10 +1001,8 @@ def render_login() -> bool:
 
         if not allowed:
             st.error(t("login_locked_out", minutes=minutes))
-        elif st.session_state.get("show_login_card"):
-            _render_login_card_block(allowed=allowed)
         else:
-            _render_intro_page()
+            _render_login_card_block(allowed=True)
 
     return False
 

@@ -18,7 +18,8 @@ from storage import (
 )
 from ui.styles import inject_sidebar_controls
 
-VALID_PAGES = frozenset({"borgerliste", "account", "privacy"})
+VALID_PAGES = frozenset({"borgerliste", "account", "privacy", "about"})
+INFO_PAGES = frozenset({"account", "privacy", "about"})
 ACCOUNT_TAB_SPECS_BASE: tuple[tuple[str, str], ...] = (
     ("profile", "account_profile_tab"),
     ("activity", "account_activity_tab"),
@@ -71,7 +72,7 @@ def _resolve_page_from_query(*, trial_blocked: bool) -> str:
     page = str(st.query_params.get("page", "borgerliste")).strip().lower()
     if page not in VALID_PAGES:
         page = "borgerliste"
-    if trial_blocked and page not in ("account", "privacy"):
+    if trial_blocked and page not in INFO_PAGES:
         page = "borgerliste"
     return page
 
@@ -110,7 +111,7 @@ def sync_navigation_to_query_params() -> None:
     page = st.session_state.get("active_page", "borgerliste")
     if page not in VALID_PAGES:
         page = "borgerliste"
-    if trial_blocked and page not in ("account", "privacy"):
+    if trial_blocked and page not in INFO_PAGES:
         page = "borgerliste"
     _apply_page_query_param(page)
     if page == "account":
@@ -243,6 +244,13 @@ def render_page_navigation() -> None:
         key="nav_privacy",
     ):
         navigate_to_page("privacy")
+    if st.sidebar.button(
+        t("nav_about"),
+        use_container_width=True,
+        type="primary" if current_page == "about" else "secondary",
+        key="nav_about",
+    ):
+        navigate_to_page("about")
     st.sidebar.markdown('<div class="sidebar-divider-spacer"></div>', unsafe_allow_html=True)
 
 

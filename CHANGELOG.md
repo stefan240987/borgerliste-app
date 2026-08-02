@@ -4,6 +4,22 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.21] — 2026-08-02 (Om Borgerflow i sidemenu)
+
+### Ændret
+
+- **Login** — informationsskærmen før login er fjernet; login-kortet vises direkte.
+- **Sidemenu** — ny side «Om Borgerflow» med den tidligere intro-tekst (dansk/engelsk). Tilgængelig også ved udløbet prøveperiode, på linje med Privatliv.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.21
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.20] — 2026-08-02 (GDPR-fane — retention og Art. 30)
 
 ### Ændret

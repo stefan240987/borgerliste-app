@@ -335,7 +335,84 @@ def test_auth() -> None:
         ),
     )
 
+    # Idle-udløb via cookie: session_state er tom, men aktiv liste ligger på disk.
     from unittest.mock import patch
+
+    from auth import logout_user, try_restore_auth_from_cookie
+    from storage import user_active_list_csv, user_active_session_path
+
+    idle_user = "idleflushuser"
+    idle_token = "idle-expired-token"
+    user_active_list_csv(idle_user).parent.mkdir(parents=True, exist_ok=True)
+    user_active_list_csv(idle_user).write_text("Navn,Adresse,Telefonnummer\nA,B,1\n", encoding="utf-8")
+    user_active_session_path(idle_user).write_text(
+        '{"source_filename": "borgere.csv", "list_key": "k1"}',
+        encoding="utf-8",
+    )
+    sessions = _load_auth_sessions()
+    sessions[idle_token] = {
+        "username": idle_user,
+        "role": "user",
+        "created_at": "2020-01-01T00:00:00",
+        "last_activity": "2020-01-01T00:00:00",
+    }
+    _save_auth_sessions(sessions)
+
+    idle_state = _FakeSessionState(
+        {
+            "authenticated": False,
+            "current_user": None,
+            "auth_token": None,
+            "list_key": None,
+            "citizens_df": None,
+        }
+    )
+    with (
+        patch("auth.st.session_state", idle_state),
+        patch("auth.st.query_params", {}),
+        patch("auth._session_cookie_token", return_value=idle_token),
+        patch("auth.clear_persistent_session_cookie"),
+        patch("storage.st.session_state", idle_state),
+        patch("storage._auth_current_user", return_value=None),
+    ):
+        restored = try_restore_auth_from_cookie()
+
+    check(
+        "idle cookie expiry flushes active list",
+        lambda: assert_true(
+            restored is False
+            and not user_active_list_csv(idle_user).exists()
+            and not user_active_session_path(idle_user).exists()
+            and idle_state.get("session_expired_notice") is True
+        ),
+    )
+
+    # logout_user med eksplicit token/username (tom session_state) flusher også.
+    idle_user2 = "idleflushuser2"
+    idle_token2 = "idle-token-2"
+    user_active_list_csv(idle_user2).parent.mkdir(parents=True, exist_ok=True)
+    user_active_list_csv(idle_user2).write_text("Navn,Adresse,Telefonnummer\nA,B,1\n", encoding="utf-8")
+    sessions = _load_auth_sessions()
+    sessions[idle_token2] = {
+        "username": idle_user2,
+        "role": "user",
+        "created_at": "2026-01-01T00:00:00",
+        "last_activity": "2026-01-01T00:00:00",
+    }
+    _save_auth_sessions(sessions)
+    empty_state = _FakeSessionState({})
+    with (
+        patch("auth.st.session_state", empty_state),
+        patch("auth.st.query_params", {}),
+        patch("auth.clear_persistent_session_cookie"),
+        patch("storage.st.session_state", empty_state),
+        patch("storage._auth_current_user", return_value=None),
+    ):
+        logout_user(username=idle_user2, token=idle_token2)
+    check(
+        "logout_user explicit owner flushes disk",
+        lambda: assert_false(user_active_list_csv(idle_user2).exists()),
+    )
 
     salt, digest = hash_password("longpassword123")
     save_users(

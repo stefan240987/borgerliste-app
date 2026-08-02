@@ -745,10 +745,16 @@ def try_restore_auth_from_cookie() -> bool:
     if not token:
         return False
 
+    # validate_persistent_session fjerner udløbne entries — hent ejer før flush.
+    entry = _load_auth_sessions().get(str(token))
+    cookie_username = None
+    if isinstance(entry, dict) and entry.get("username"):
+        cookie_username = str(entry["username"])
+
     account = validate_persistent_session(str(token), touch=True)
     if not account:
-        clear_persistent_session_cookie()
-        revoke_persistent_session(str(token))
+        # Idle-/cookie-udløb skal GDPR-flushe listen — ikke kun fjerne cookien.
+        logout_user(username=cookie_username, token=str(token))
         st.session_state.session_expired_notice = True
         return False
 
@@ -772,19 +778,35 @@ def ensure_auth_cookie_synced() -> None:
     st.session_state.cookie_synced_for_token = token
 
 
-def logout_user() -> None:
-    username = current_username() if current_user() else None
+def logout_user(*, username: str | None = None, token: str | None = None) -> None:
+    """Log ud og flush aktiv borgerliste (GDPR).
+
+    Ved idle-reload er session_state ofte tom, mens brugernavn kun findes i
+    cookie-sessionen — derfor kan username/token sendes eksplicit.
+    """
+    owner = username
+    if owner is None and current_user():
+        owner = current_username()
+    if owner == "unknown":
+        owner = None
+
     list_key = st.session_state.get("list_key")
-    token = st.session_state.get("auth_token")
-    if token:
-        revoke_persistent_session(str(token))
+    session_token = token if token is not None else st.session_state.get("auth_token")
+    if session_token and not owner:
+        entry = _load_auth_sessions().get(str(session_token))
+        if isinstance(entry, dict) and entry.get("username"):
+            owner = str(entry["username"])
+
+    if session_token:
+        revoke_persistent_session(str(session_token))
     clear_persistent_session_cookie()
-    clear_active_list(username=username, list_key=list_key)
+    clear_active_list(username=owner, list_key=list_key)
     st.session_state.authenticated = False
     st.session_state.current_user = None
     st.session_state.auth_token = None
     st.session_state.cookie_synced_for_token = None
     st.session_state.pop("_session_cookie_script_sig", None)
+    st.session_state.pop("_idle_reload_expires_ms", None)
     st.session_state.active_page = "borgerliste"
     st.session_state.account_tab = "profile"
     st.session_state.user_data_loaded_for = None

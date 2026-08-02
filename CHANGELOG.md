@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.17] — 2026-08-02 (GDPR-flush ved idle-logout)
+
+### Rettet
+
+- **Idle-logout** — når session udløber pga. inaktivitet (cookie-restore fejler efter reload), flushes den aktive borgerliste nu via `logout_user` i stedet for kun at fjerne cookien. Listen genopstår dermed ikke ved næste login.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.17
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.16] — 2026-08-02 (Mobil-sidebar aria-expanded)
 
 ### Rettet

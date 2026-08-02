@@ -4,6 +4,22 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.24] — 2026-08-02 (Feedback-status: åben/lukket/implementeret/afvist)
+
+### Tilføjet
+
+- **Feedback-status** — administratorer kan sætte status på indsendelser (Åben, Lukket, Implementeret, Afvist) og filtrere efter status under Min konto → Feedback.
+- **Mine indsendelser** — brugere ser egne forslag på Feedback-siden med aktuel status.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.24
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.23] — 2026-08-02 (Admin-feedback som læsbare kort)
 
 ### Ændret

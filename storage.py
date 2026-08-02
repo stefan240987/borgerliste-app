@@ -867,14 +867,23 @@ def _sanitize_feedback_entry(entry: dict) -> dict | None:
     message = str(entry.get("message", "")).strip()[:MAX_FEEDBACK_MESSAGE_LENGTH]
     if not title or not message:
         return None
-    return {
+    status = str(entry.get("status") or DEFAULT_FEEDBACK_STATUS).strip().lower()
+    if status not in FEEDBACK_STATUSES:
+        status = DEFAULT_FEEDBACK_STATUS
+    sanitized = {
         "id": str(entry.get("id") or secrets.token_hex(8)),
         "timestamp": str(entry.get("timestamp") or datetime.now().isoformat(timespec="seconds")),
         "username": str(entry.get("username") or ""),
         "kind": kind,
         "title": title,
         "message": message,
+        "status": status,
     }
+    if entry.get("status_updated_at"):
+        sanitized["status_updated_at"] = str(entry.get("status_updated_at"))
+    if entry.get("status_updated_by"):
+        sanitized["status_updated_by"] = str(entry.get("status_updated_by"))
+    return sanitized
 
 
 def load_feedback() -> list[dict]:
@@ -929,11 +938,49 @@ def append_feedback(*, kind: str, title: str, message: str) -> tuple[bool, str]:
         "kind": kind_norm,
         "title": title_norm,
         "message": message_norm,
+        "status": DEFAULT_FEEDBACK_STATUS,
     }
     entries = load_feedback()
     entries.append(entry)
     save_feedback(entries)
     return True, t("feedback_success")
+
+
+def load_feedback_for_user(username: str | None = None) -> list[dict]:
+    owner = (username or _auth_current_username() or "").strip()
+    if not owner:
+        return []
+    return [entry for entry in load_feedback() if str(entry.get("username", "")) == owner]
+
+
+def update_feedback_status(feedback_id: str, status: str) -> tuple[bool, str]:
+    from auth import is_admin
+
+    if not is_admin():
+        return False, t("admin_feedback_status_denied")
+    status_norm = str(status or "").strip().lower()
+    if status_norm not in FEEDBACK_STATUSES:
+        return False, t("admin_feedback_status_error")
+    target_id = str(feedback_id or "").strip()
+    if not target_id:
+        return False, t("admin_feedback_status_error")
+
+    entries = load_feedback()
+    updated = False
+    for entry in entries:
+        if str(entry.get("id", "")) != target_id:
+            continue
+        if entry.get("status") == status_norm:
+            return True, t("admin_feedback_status_saved")
+        entry["status"] = status_norm
+        entry["status_updated_at"] = datetime.now().isoformat(timespec="seconds")
+        entry["status_updated_by"] = _auth_current_username()
+        updated = True
+        break
+    if not updated:
+        return False, t("admin_feedback_status_error")
+    save_feedback(entries)
+    return True, t("admin_feedback_status_saved")
 
 
 def latest_audit_for_citizen(citizen_id: str) -> dict | None:

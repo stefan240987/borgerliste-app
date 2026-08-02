@@ -23,6 +23,8 @@ MAX_FEEDBACK_ENTRIES = 5000
 MAX_FEEDBACK_TITLE_LENGTH = 120
 MAX_FEEDBACK_MESSAGE_LENGTH = 4000
 FEEDBACK_KINDS = ("bug", "suggestion")
+FEEDBACK_STATUSES = ("open", "closed", "implemented", "rejected")
+DEFAULT_FEEDBACK_STATUS = "open"
 DEFAULT_ADMIN_USERNAME = "admin"
 MIN_PASSWORD_LENGTH = 12
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -44,7 +46,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.23"
+APP_VERSION = "1.5.24"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -310,6 +312,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "feedback_error_title": "Angiv en titel (maks. {max} tegn).",
         "feedback_error_message": "Angiv en beskrivelse (maks. {max} tegn).",
         "feedback_error_kind": "Vælg type.",
+        "feedback_status_open": "Åben",
+        "feedback_status_closed": "Lukket",
+        "feedback_status_implemented": "Implementeret",
+        "feedback_status_rejected": "Afvist",
+        "feedback_mine_title": "Mine indsendelser",
+        "feedback_mine_caption": "Status på din feedback opdateres, når en administrator behandler den.",
+        "feedback_mine_empty": "Du har ikke sendt feedback endnu.",
         "account_profile_tab": "Profil",
         "account_admin_users_tab": "Brugere",
         "account_admin_master_tab": "Master-register",
@@ -320,8 +329,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_feedback_empty": "Ingen feedback endnu.",
         "admin_feedback_all_kinds": "Alle typer",
         "admin_feedback_all_users": "Alle brugere",
+        "admin_feedback_all_statuses": "Alle statusser",
         "admin_feedback_filter_kind": "Filtrer type",
         "admin_feedback_filter_user": "Filtrer bruger",
+        "admin_feedback_filter_status": "Filtrer status",
+        "admin_feedback_status_label": "Sæt status",
+        "admin_feedback_status_saved": "Status opdateret.",
+        "admin_feedback_status_error": "Kunne ikke opdatere status.",
+        "admin_feedback_status_denied": "Kun administratorer kan ændre feedback-status.",
         "admin_feedback_col_time": "Tidspunkt",
         "admin_feedback_col_user": "Bruger",
         "admin_feedback_col_kind": "Type",
@@ -683,6 +698,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "feedback_error_title": "Please enter a title (max {max} characters).",
         "feedback_error_message": "Please enter a description (max {max} characters).",
         "feedback_error_kind": "Please select a type.",
+        "feedback_status_open": "Open",
+        "feedback_status_closed": "Closed",
+        "feedback_status_implemented": "Implemented",
+        "feedback_status_rejected": "Rejected",
+        "feedback_mine_title": "My submissions",
+        "feedback_mine_caption": "The status of your feedback updates when an administrator reviews it.",
+        "feedback_mine_empty": "You have not submitted any feedback yet.",
         "account_profile_tab": "Profile",
         "account_admin_users_tab": "Users",
         "account_admin_master_tab": "Master register",
@@ -693,8 +715,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_feedback_empty": "No feedback yet.",
         "admin_feedback_all_kinds": "All types",
         "admin_feedback_all_users": "All users",
+        "admin_feedback_all_statuses": "All statuses",
         "admin_feedback_filter_kind": "Filter type",
         "admin_feedback_filter_user": "Filter user",
+        "admin_feedback_filter_status": "Filter status",
+        "admin_feedback_status_label": "Set status",
+        "admin_feedback_status_saved": "Status updated.",
+        "admin_feedback_status_error": "Could not update status.",
+        "admin_feedback_status_denied": "Only administrators can change feedback status.",
         "admin_feedback_col_time": "Time",
         "admin_feedback_col_user": "User",
         "admin_feedback_col_kind": "Type",

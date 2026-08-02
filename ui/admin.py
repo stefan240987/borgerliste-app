@@ -3,7 +3,8 @@ import html
 from datetime import datetime
 import streamlit as st
 from config import (
-    FEEDBACK_KINDS, MAX_FEEDBACK_MESSAGE_LENGTH, MAX_FEEDBACK_TITLE_LENGTH,
+    DEFAULT_FEEDBACK_STATUS, FEEDBACK_KINDS, FEEDBACK_STATUSES,
+    MAX_FEEDBACK_MESSAGE_LENGTH, MAX_FEEDBACK_TITLE_LENGTH,
     MAX_RETENTION_MONTHS, MAX_TRIAL_DAYS, MIN_PASSWORD_LENGTH, MIN_RETENTION_MONTHS,
     MIN_SESSION_IDLE_MINUTES, MAX_SESSION_IDLE_MINUTES, MIN_TRIAL_DAYS, USER_ROLES,
 )
@@ -23,7 +24,8 @@ from matching import (
 from storage import (
     append_feedback, build_citizen_label_map, configured_retention_months,
     configured_session_idle_minutes, configured_trial_days, load_audit_log, load_feedback,
-    public_signup_enabled, save_app_settings, trial_system_enabled,
+    load_feedback_for_user, public_signup_enabled, save_app_settings, trial_system_enabled,
+    update_feedback_status,
 )
 from ui.common import account_tab_specs, inject_account_tab_url_sync, resolve_account_tab_default_label
 from ui.styles import (
@@ -40,6 +42,12 @@ def _feedback_kind_label(kind: str) -> str:
     key = f"feedback_kind_{kind}"
     label = t(key)
     return label if label != key else kind
+
+
+def _feedback_status_label(status: str) -> str:
+    key = f"feedback_status_{status}"
+    label = t(key)
+    return label if label != key else status
 
 
 def _format_feedback_timestamp(raw: object) -> str:
@@ -726,10 +734,32 @@ def render_feedback_page() -> None:
             else:
                 st.error(result_message)
 
+    _account_panel_divider()
+    st.markdown(f"#### {t('feedback_mine_title')}")
+    st.caption(t("feedback_mine_caption"))
+    mine = list(reversed(load_feedback_for_user()[-100:]))
+    if not mine:
+        st.info(t("feedback_mine_empty"))
+        return
+    _render_feedback_cards(mine, show_username=False, allow_status_edit=False)
 
-def _render_feedback_cards(entries: list[dict]) -> None:
+
+def _render_feedback_cards(
+    entries: list[dict],
+    *,
+    show_username: bool = True,
+    allow_status_edit: bool = False,
+) -> None:
+    status_labels = {status: _feedback_status_label(status) for status in FEEDBACK_STATUSES}
+    label_to_status = {label: status for status, label in status_labels.items()}
+
     st.markdown('<div class="feedback-card-list">', unsafe_allow_html=True)
     for entry in entries:
+        feedback_id = str(entry.get("id", ""))
+        current_status = str(entry.get("status") or DEFAULT_FEEDBACK_STATUS)
+        if current_status not in FEEDBACK_STATUSES:
+            current_status = DEFAULT_FEEDBACK_STATUS
+
         st.markdown(
             feedback_card_html(
                 kind=str(entry.get("kind", "")),
@@ -737,9 +767,29 @@ def _render_feedback_cards(entries: list[dict]) -> None:
                 timestamp=_format_feedback_timestamp(entry.get("timestamp")),
                 title=str(entry.get("title", "")),
                 message=str(entry.get("message", "")),
+                status=current_status,
+                show_username=show_username,
             ),
             unsafe_allow_html=True,
         )
+
+        if allow_status_edit and feedback_id:
+            st.markdown('<div class="feedback-card-controls">', unsafe_allow_html=True)
+            selected_label = st.selectbox(
+                t("admin_feedback_status_label"),
+                list(status_labels.values()),
+                index=list(FEEDBACK_STATUSES).index(current_status),
+                key=f"feedback_status_{feedback_id}",
+            )
+            selected_status = label_to_status.get(selected_label, current_status)
+            if selected_status != current_status:
+                ok, result_message = update_feedback_status(feedback_id, selected_status)
+                if ok:
+                    st.success(result_message)
+                    st.rerun()
+                else:
+                    st.error(result_message)
+            st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -752,7 +802,8 @@ def render_admin_feedback_section() -> None:
         return
 
     kind_labels = {kind: _feedback_kind_label(kind) for kind in FEEDBACK_KINDS}
-    filter_cols = st.columns(2)
+    status_labels = {status: _feedback_status_label(status) for status in FEEDBACK_STATUSES}
+    filter_cols = st.columns(3)
     usernames = sorted({str(entry.get("username", "")) for entry in entries if entry.get("username")})
     with filter_cols[0]:
         filter_kind = st.selectbox(
@@ -764,6 +815,11 @@ def render_admin_feedback_section() -> None:
             t("admin_feedback_filter_user"),
             [t("admin_feedback_all_users"), *usernames],
         )
+    with filter_cols[2]:
+        filter_status = st.selectbox(
+            t("admin_feedback_filter_status"),
+            [t("admin_feedback_all_statuses"), *[status_labels[s] for s in FEEDBACK_STATUSES]],
+        )
 
     filtered = entries
     if filter_kind != t("admin_feedback_all_kinds"):
@@ -771,12 +827,19 @@ def render_admin_feedback_section() -> None:
         filtered = [entry for entry in filtered if entry.get("kind") == kind_key]
     if filter_user != t("admin_feedback_all_users"):
         filtered = [entry for entry in filtered if entry.get("username") == filter_user]
+    if filter_status != t("admin_feedback_all_statuses"):
+        status_key = next((s for s, label in status_labels.items() if label == filter_status), "")
+        filtered = [entry for entry in filtered if entry.get("status") == status_key]
 
     if not filtered:
         st.info(t("admin_feedback_empty"))
         return
 
-    _render_feedback_cards(list(reversed(filtered[-500:])))
+    _render_feedback_cards(
+        list(reversed(filtered[-500:])),
+        show_username=True,
+        allow_status_edit=True,
+    )
 
 
 def render_account_page() -> None:

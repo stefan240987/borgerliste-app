@@ -562,8 +562,10 @@ def test_feedback_storage() -> None:
     print("\n== storage (feedback) ==")
     from unittest.mock import patch
 
-    from config import FEEDBACK_KINDS, FEEDBACK_PATH
-    from storage import append_feedback, load_feedback, save_feedback
+    from config import DEFAULT_FEEDBACK_STATUS, FEEDBACK_KINDS, FEEDBACK_PATH, FEEDBACK_STATUSES
+    from storage import (
+        append_feedback, load_feedback, load_feedback_for_user, save_feedback, update_feedback_status,
+    )
     from ui.common import INFO_PAGES, VALID_PAGES
 
     save_feedback([])
@@ -571,6 +573,10 @@ def test_feedback_storage() -> None:
     check("feedback in VALID_PAGES", lambda: assert_true("feedback" in VALID_PAGES))
     check("feedback in INFO_PAGES", lambda: assert_true("feedback" in INFO_PAGES))
     check("feedback kinds", lambda: assert_eq(set(FEEDBACK_KINDS), {"bug", "suggestion"}))
+    check(
+        "feedback statuses",
+        lambda: assert_eq(set(FEEDBACK_STATUSES), {"open", "closed", "implemented", "rejected"}),
+    )
 
     with patch("storage._auth_current_username", return_value="tester"):
         ok, msg = append_feedback(kind="bug", title="Knappen virker ikke", message="Status gemmes ikke.")
@@ -589,8 +595,40 @@ def test_feedback_storage() -> None:
         entries[0].get("kind") == "bug"
         and entries[0].get("username") == "tester"
         and entries[0].get("title") == "Knappen virker ikke"
+        and entries[0].get("status") == DEFAULT_FEEDBACK_STATUS
         and FEEDBACK_PATH.exists()
     ))
+
+    feedback_id = str(entries[0]["id"])
+    with patch("storage._auth_current_username", return_value="admin"), patch("auth.is_admin", return_value=True):
+        status_ok, _ = update_feedback_status(feedback_id, "implemented")
+        denied_status, _ = update_feedback_status(feedback_id, "not-a-status")
+    with patch("auth.is_admin", return_value=False):
+        denied_role, _ = update_feedback_status(feedback_id, "closed")
+
+    check("update_feedback_status ok", lambda: assert_true(status_ok))
+    check("update_feedback_status rejects status", lambda: assert_false(denied_status))
+    check("update_feedback_status denies non-admin", lambda: assert_false(denied_role))
+    check(
+        "update_feedback_status persisted",
+        lambda: assert_eq(load_feedback()[0].get("status"), "implemented"),
+    )
+    check("load_feedback_for_user mine", lambda: assert_eq(len(load_feedback_for_user("tester")), 1))
+    check("load_feedback_for_user other", lambda: assert_eq(len(load_feedback_for_user("other")), 0))
+
+    save_feedback([{
+        "id": "legacy1",
+        "timestamp": "2026-08-01T10:00:00",
+        "username": "legacy",
+        "kind": "suggestion",
+        "title": "Gammelt forslag",
+        "message": "Uden statusfelt",
+    }])
+    migrated = load_feedback()
+    check(
+        "legacy feedback migrates to open",
+        lambda: assert_true(len(migrated) == 1 and migrated[0].get("status") == "open"),
+    )
 
 
 def test_storage_gdpr_helpers() -> None:
@@ -683,6 +721,7 @@ def test_ui_styles() -> None:
         citizen_field_html,
         feedback_card_html,
         feedback_kind_badge_html,
+        feedback_status_badge_html,
     )
     from config import THEME_PALETTES
     from unittest.mock import patch
@@ -692,12 +731,23 @@ def test_ui_styles() -> None:
     check("_citizen_card_css", lambda: assert_true("citizen-card-anchor" in _citizen_card_css()))
     themed = _themed_css_rules(THEME_PALETTES["Lyst tema"], "#fff")
     check("_themed_css_rules", lambda: assert_true(len(themed) > 100))
-    check("feedback-card css", lambda: assert_true(".feedback-card" in themed and "feedback-bug" in themed))
+    check(
+        "feedback-card css",
+        lambda: assert_true(
+            ".feedback-card" in themed
+            and "feedback-bug" in themed
+            and "feedback-status-open" in themed
+        ),
+    )
     check("status_pill_html", lambda: assert_true("status-pill" in status_pill_html("Accepteret tilbud")))
     check("citizen_field_html", lambda: assert_true("citizen-field" in citizen_field_html("Navn", "Anna")))
     check(
         "feedback_kind_badge_html",
         lambda: assert_true("admin-badge--feedback-suggestion" in feedback_kind_badge_html("suggestion")),
+    )
+    check(
+        "feedback_status_badge_html",
+        lambda: assert_true("admin-badge--feedback-status-implemented" in feedback_status_badge_html("implemented")),
     )
     card = feedback_card_html(
         kind="bug",
@@ -705,6 +755,7 @@ def test_ui_styles() -> None:
         timestamp="02.08.2026 · 14:10",
         title="Titel",
         message="Beskrivelse med\nlinjeskift",
+        status="open",
     )
     check(
         "feedback_card_html",
@@ -714,6 +765,7 @@ def test_ui_styles() -> None:
             and "Titel" in card
             and "Beskrivelse" in card
             and "admin-badge--feedback-bug" in card
+            and "admin-badge--feedback-status-open" in card
         ),
     )
 

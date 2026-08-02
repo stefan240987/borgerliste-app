@@ -65,6 +65,19 @@ def feedback_kind_badge_html(kind: str) -> str:
     return _admin_badge(label, variant)
 
 
+def feedback_status_badge_html(status: str) -> str:
+    from config import DEFAULT_FEEDBACK_STATUS, FEEDBACK_STATUSES
+
+    status_key = str(status or DEFAULT_FEEDBACK_STATUS).strip().lower()
+    if status_key not in FEEDBACK_STATUSES:
+        status_key = DEFAULT_FEEDBACK_STATUS
+    label_key = f"feedback_status_{status_key}"
+    label = t(label_key)
+    if label == label_key:
+        label = status_key
+    return _admin_badge(label, f"feedback-status-{status_key}")
+
+
 def feedback_card_html(
     *,
     kind: str,
@@ -72,10 +85,13 @@ def feedback_card_html(
     timestamp: str,
     title: str,
     message: str,
+    status: str = "open",
+    show_username: bool = True,
 ) -> str:
     meta_parts = [
         feedback_kind_badge_html(kind),
-        f'<span class="feedback-card-meta-item">{html.escape(username)}</span>' if username else "",
+        feedback_status_badge_html(status),
+        f'<span class="feedback-card-meta-item">{html.escape(username)}</span>' if show_username and username else "",
         f'<span class="feedback-card-meta-item">{html.escape(timestamp)}</span>' if timestamp else "",
     ]
     meta_html = "".join(part for part in meta_parts if part)
@@ -1311,6 +1327,26 @@ def _admin_badge_css(scheme: str) -> str:
     color: #DBEAFE !important;
     border-color: #3B82F6 !important;
 }
+.admin-badge--feedback-status-open {
+    background: #78350F !important;
+    color: #FDE68A !important;
+    border-color: #F59E0B !important;
+}
+.admin-badge--feedback-status-closed {
+    background: #334155 !important;
+    color: #E2E8F0 !important;
+    border-color: #64748B !important;
+}
+.admin-badge--feedback-status-implemented {
+    background: #14532D !important;
+    color: #BBF7D0 !important;
+    border-color: #22C55E !important;
+}
+.admin-badge--feedback-status-rejected {
+    background: #7F1D1D !important;
+    color: #FECACA !important;
+    border-color: #EF4444 !important;
+}
 .admin-municipality-none {
     color: var(--app-text-muted, #94A3B8);
     font-size: 0.85rem;
@@ -1408,6 +1444,26 @@ def _admin_badge_css(scheme: str) -> str:
     background: #DBEAFE !important;
     color: #1E40AF !important;
     border-color: #93C5FD !important;
+}
+.admin-badge--feedback-status-open {
+    background: #FEF3C7 !important;
+    color: #92400E !important;
+    border-color: #FCD34D !important;
+}
+.admin-badge--feedback-status-closed {
+    background: #F1F5F9 !important;
+    color: #475569 !important;
+    border-color: #CBD5E1 !important;
+}
+.admin-badge--feedback-status-implemented {
+    background: #DCFCE7 !important;
+    color: #166534 !important;
+    border-color: #86EFAC !important;
+}
+.admin-badge--feedback-status-rejected {
+    background: #FEE2E2 !important;
+    color: #991B1B !important;
+    border-color: #FCA5A5 !important;
 }
 .admin-municipality-none {
     color: var(--app-text-muted, #64748B);
@@ -1530,6 +1586,9 @@ def _account_section_css(scheme: str) -> str:
 }}
 .feedback-card-list {{
     margin-top: 0.35rem;
+}}
+.feedback-card-controls {{
+    margin: -0.35rem 0 1rem 0;
 }}
 [data-testid="stTabs"] h4 {{
     font-size: 1.05rem !important;

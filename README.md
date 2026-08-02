@@ -8,11 +8,12 @@ Upload en Excel- eller CSV-liste, følg status pr. borger, og genkend samme pers
 
 ## Hvad bruges appen til?
 
-- **Importere borgerlister** — Excel (`.xlsx`) og CSV med navn, adresse og telefon
+- **Importere borgerlister** — Excel (`.xlsx`) og CSV med navn, by/adresse og telefon
 - **Sætte og følge status** — fx *Ikke kontaktet endnu*, *Accepteret tilbud*, *Afslået*, *Ring igen om 6 måneder*
 - **Holde styr på kontakthistorik** — status gemmes og genkendes, selv når du uploader en ny liste
+- **Filtrere på indsats** — når listen har `Indsats navn`, kan du filtrere borgere og KPI-tal pr. indsats
 - **Arbejde flere sammen** — login med roller (admin/bruger), hver bruger kan have egne lister
-- **Eksportere og dokumentere** — CSV/Excel-eksport og GDPR-værktøjer (sletning, indsigt, audit-log)
+- **Eksportere og dokumentere** — CSV/Excel-eksport, feedback og GDPR-værktøjer (sletning, indsigt, audit-log)
 
 Appen kører i browseren (desktop og mobil) og er bygget med Python/Streamlit.
 
@@ -20,11 +21,16 @@ Appen kører i browseren (desktop og mobil) og er bygget med Python/Streamlit.
 
 - Upload af borgerlister (Excel/CSV)
 - Master-register med 2/3-matching på tværs af lister
-- Statussporing med historik
+- Statussporing med historik og KPI-overblik
+- Indsats-filter (når kolonnen findes) — KPI følger det valgte filter
+- Session-only felter: personnummer og indsats navn vises midlertidigt, gemmes ikke
+- Feedback: brugere kan indsende fejl/forslag; admin styrer status (åben/lukket/implementeret/afvist)
+- Sider: Borgerliste, Min konto, Privatliv, Om, Feedback
 - Dansk/engelsk og lyst/mørkt/system-tema
 - Mobilvenligt kort-layout
-- Kryptering af persondata (navn, adresse, telefon) i hvile
-- Multi-bruger login med session og rate-limited login
+- Kryptering af persondata (navn, adresse/by, telefon) i hvile
+- Multi-bruger login med session-cookie og rate-limited login (IP + brugernavn)
+- Valgfri prøveperiode pr. bruger (styres af admin)
 - Docker-image publiceres automatisk til GitHub Container Registry (GHCR)
 
 ---
@@ -39,7 +45,7 @@ Det nemmeste er at køre det færdigbyggede image fra GHCR. Data gemmes i et Doc
 ghcr.io/stefan240987/borgerliste-app:latest
 ```
 
-Tagget version (fx `1.2.2`) kan bruges i stedet for `latest`, hvis du vil låse til en bestemt udgave.
+Tagget version (fx `1.5.29`) kan bruges i stedet for `latest`, hvis du vil låse til en bestemt udgave.
 
 ### Krav
 
@@ -66,6 +72,8 @@ BORGERLISTE_ADMIN_PASSWORD=din-staerke-adgangskode-her
 
 Adgangskoden skal være mindst 12 tegn. Brug en stærk, unik adgangskode i produktion.
 
+I Docker kræves admin-password ved første start (ingen plaintext bootstrap-fil i `/data`).
+
 ### Trin 3: Start containeren
 
 ```bash
@@ -84,8 +92,12 @@ Log ind med brugernavnet og adgangskoden fra `.env`.
 ### Opdatér til ny version
 
 ```bash
-docker pull ghcr.io/stefan240987/borgerliste-app:1.2.2
+# Seneste (hvis GHCR_IMAGE peget på :latest)
+docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
+
+# Eller lås til en bestemt version i .env, fx:
+# GHCR_IMAGE=ghcr.io/stefan240987/borgerliste-app:1.5.29
 ```
 
 Data i volume `borgerliste_data` bevares ved opdatering. Se [CHANGELOG.md](CHANGELOG.md) for detaljer mellem versioner.
@@ -103,14 +115,14 @@ docker run -d \
   -e BORGERLISTE_ADMIN_USERNAME=admin \
   -e BORGERLISTE_ADMIN_PASSWORD=din-staerke-adgangskode-her \
   -v borgerliste_data:/data \
-  ghcr.io/stefan240987/borgerliste-app:latest
+  ghcr.io/stefan240987/borgerliste-app:1.5.29
 ```
 
 ---
 
 ## Installér på Unraid
 
-Se den fulde trin-for-trin guide: [UNRAID_DOCKER_TEMPLATE.md](UNRAID_DOCKER_TEMPLATE.md) (ny skabelon, miljøvariabler, volume og opgradering uden datatab).
+Se den fulde trin-for-trin guide: [UNRAID_DOCKER_TEMPLATE.md](UNRAID_DOCKER_TEMPLATE.md) (skabelon, miljøvariabler, volume og opgradering uden datatab).
 
 ### Hurtig Docker UI
 
@@ -166,13 +178,14 @@ Se [SERVER_DEPLOYMENT.md](SERVER_DEPLOYMENT.md) for mere om server-deploy og rev
 ## Data og sikkerhed
 
 - Borgerdata gemmes i `/data` i containeren (Docker-volume `borgerliste_data`)
-- Persondata (navn, adresse, telefon) krypteres i hvile
+- Persondata (navn, adresse/by, telefon) krypteres i hvile
 - **Master-registeret er fælles** for hele installationen (status genkendes på tværs af brugere). Anbefaling: én organisation pr. installation; overvej DPIA hvis flere teams deler samme app
-- CPR/personnummer kan vises i aktiv session til identifikation, men **gemmes ikke** og flushes ved logud/timeout
+- CPR/personnummer og indsats navn kan vises i aktiv session, men **gemmes ikke** og flushes ved logud/timeout
 - Commit **aldrig** `data/`, `.env` eller `.streamlit/secrets.toml` (brug heller ikke `secrets.toml` i produktion — brug env-variabler)
 - Sæt **stærk admin-adgangskode** i `.env` / Unraid før produktion (påkrævet i Docker)
 - Selvbetjent signup er **slået fra** som standard (`BORGERLISTE_PUBLIC_SIGNUP_ENABLED=false`)
-- Kun administratorer kan slette borgerdata (Art. 17) og master-registeret
+- Kun administratorer kan slette borgerdata (Art. 17) og master-registeret; sletning kræver 3/3-match (eller eksakt citizen-id)
+- Audit-log dækker også eksport, sletning, login, signup, admin-handlinger og master-wipe (uden PII)
 - Login er rate-limited (IP + brugernavn) efter gentagne fejl
 - Session cookie holder dig logget ind ved browser-genindlæsning (standard: 24 timers inaktivitet, max 30 dage)
 - Konfigurer med `BORGERLISTE_SESSION_IDLE_MINUTES` og `BORGERLISTE_SESSION_MAX_DAYS` i `.env`

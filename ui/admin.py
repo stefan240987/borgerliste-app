@@ -3,6 +3,7 @@ import html
 from datetime import datetime
 import streamlit as st
 from config import (
+    FEEDBACK_KINDS, MAX_FEEDBACK_MESSAGE_LENGTH, MAX_FEEDBACK_TITLE_LENGTH,
     MAX_RETENTION_MONTHS, MAX_TRIAL_DAYS, MIN_PASSWORD_LENGTH, MIN_RETENTION_MONTHS,
     MIN_SESSION_IDLE_MINUTES, MAX_SESSION_IDLE_MINUTES, MIN_TRIAL_DAYS, USER_ROLES,
 )
@@ -20,9 +21,9 @@ from matching import (
     clear_master_register, load_master_register, maybe_sync_master_from_all_user_data,
 )
 from storage import (
-    build_citizen_label_map, configured_retention_months,
-    configured_session_idle_minutes, configured_trial_days, load_audit_log, public_signup_enabled,
-    save_app_settings, trial_system_enabled,
+    append_feedback, build_citizen_label_map, configured_retention_months,
+    configured_session_idle_minutes, configured_trial_days, load_audit_log, load_feedback,
+    public_signup_enabled, save_app_settings, trial_system_enabled,
 )
 from ui.common import account_tab_specs, inject_account_tab_url_sync, resolve_account_tab_default_label
 from ui.styles import (
@@ -33,6 +34,13 @@ from ui.styles import (
 _ADMIN_USER_COL_WEIGHTS = [2.0, 1.0, 1.0, 1.3, 1.0, 1.0]
 _AUDIT_COL_WEIGHTS_ADMIN = [1.5, 1.0, 2.0, 1.0, 1.0]
 _AUDIT_COL_WEIGHTS_USER = [1.5, 2.0, 1.0, 1.0]
+_FEEDBACK_COL_WEIGHTS = [1.3, 1.0, 1.0, 1.5, 2.5]
+
+
+def _feedback_kind_label(kind: str) -> str:
+    key = f"feedback_kind_{kind}"
+    label = t(key)
+    return label if label != key else kind
 
 
 def _account_panel_divider() -> None:
@@ -681,6 +689,99 @@ def render_about_page() -> None:
     st.markdown(f"- {t('about_bullet_3')}")
 
 
+def render_feedback_page() -> None:
+    st.title(t("feedback_title"))
+    st.markdown(t("feedback_lead"))
+
+    kind_labels = {kind: _feedback_kind_label(kind) for kind in FEEDBACK_KINDS}
+    with st.form("feedback_form", clear_on_submit=True):
+        kind_label = st.radio(
+            t("feedback_kind_label"),
+            list(kind_labels.values()),
+            horizontal=True,
+        )
+        title = st.text_input(
+            t("feedback_title_label"),
+            max_chars=MAX_FEEDBACK_TITLE_LENGTH,
+        )
+        message = st.text_area(
+            t("feedback_message_label"),
+            max_chars=MAX_FEEDBACK_MESSAGE_LENGTH,
+            height=160,
+        )
+        submitted = st.form_submit_button(t("feedback_submit"), type="primary")
+        if submitted:
+            kind = next((k for k, label in kind_labels.items() if label == kind_label), "")
+            ok, result_message = append_feedback(kind=kind, title=title, message=message)
+            if ok:
+                st.success(result_message)
+            else:
+                st.error(result_message)
+
+
+def _render_feedback_table(entries: list[dict]) -> None:
+    header_keys = (
+        "admin_feedback_col_time",
+        "admin_feedback_col_user",
+        "admin_feedback_col_kind",
+        "admin_feedback_col_title",
+        "admin_feedback_col_message",
+    )
+    header_cols = st.columns(_FEEDBACK_COL_WEIGHTS)
+    for col, key in zip(header_cols, header_keys):
+        col.markdown(
+            f'<div class="account-table-header">{html.escape(t(key))}</div>',
+            unsafe_allow_html=True,
+        )
+
+    for entry in entries:
+        cols = st.columns(_FEEDBACK_COL_WEIGHTS)
+        values = (
+            str(entry.get("timestamp", "")),
+            str(entry.get("username", "")),
+            _feedback_kind_label(str(entry.get("kind", ""))),
+            str(entry.get("title", "")),
+            str(entry.get("message", "")),
+        )
+        for col, value in zip(cols, values):
+            col.markdown(
+                f'<div class="account-table-row">{html.escape(value)}</div>',
+                unsafe_allow_html=True,
+            )
+
+
+def render_admin_feedback_section() -> None:
+    st.markdown(f"#### {t('admin_feedback_title')}")
+    st.caption(t("admin_feedback_caption"))
+    entries = load_feedback()
+    if not entries:
+        st.info(t("admin_feedback_empty"))
+        return
+
+    kind_labels = {kind: _feedback_kind_label(kind) for kind in FEEDBACK_KINDS}
+    filter_cols = st.columns(2)
+    usernames = sorted({str(entry.get("username", "")) for entry in entries if entry.get("username")})
+    with filter_cols[0]:
+        filter_kind = st.selectbox(
+            t("admin_feedback_filter_kind"),
+            [t("admin_feedback_all_kinds"), *[kind_labels[k] for k in FEEDBACK_KINDS]],
+        )
+    with filter_cols[1]:
+        filter_user = st.selectbox(
+            t("admin_feedback_filter_user"),
+            [t("admin_feedback_all_users"), *usernames],
+        )
+
+    filtered = entries
+    if filter_kind != t("admin_feedback_all_kinds"):
+        kind_key = next((k for k, label in kind_labels.items() if label == filter_kind), "")
+        filtered = [entry for entry in filtered if entry.get("kind") == kind_key]
+    if filter_user != t("admin_feedback_all_users"):
+        filtered = [entry for entry in filtered if entry.get("username") == filter_user]
+
+    _render_feedback_table(list(reversed(filtered[-500:])))
+
+
 def render_account_page() -> None:
     st.title(t("account_title"))
     if purged := st.session_state.pop("retention_purged_count", None):
@@ -706,6 +807,8 @@ def render_account_page() -> None:
         with tabs[5]:
             render_audit_log_section()
         with tabs[6]:
+            render_admin_feedback_section()
+        with tabs[7]:
             render_admin_gdpr_section()
 
     inject_account_tab_url_sync({label: slug for slug, label in tab_specs})

@@ -558,6 +558,41 @@ class _FakeSessionState(dict):
             raise AttributeError(name) from exc
 
 
+def test_feedback_storage() -> None:
+    print("\n== storage (feedback) ==")
+    from unittest.mock import patch
+
+    from config import FEEDBACK_KINDS, FEEDBACK_PATH
+    from storage import append_feedback, load_feedback, save_feedback
+    from ui.common import INFO_PAGES, VALID_PAGES
+
+    save_feedback([])
+    check("feedback starts empty", lambda: assert_eq(load_feedback(), []))
+    check("feedback in VALID_PAGES", lambda: assert_true("feedback" in VALID_PAGES))
+    check("feedback in INFO_PAGES", lambda: assert_true("feedback" in INFO_PAGES))
+    check("feedback kinds", lambda: assert_eq(set(FEEDBACK_KINDS), {"bug", "suggestion"}))
+
+    with patch("storage._auth_current_username", return_value="tester"):
+        ok, msg = append_feedback(kind="bug", title="Knappen virker ikke", message="Status gemmes ikke.")
+        bad_kind, _ = append_feedback(kind="other", title="x", message="y")
+        bad_title, _ = append_feedback(kind="suggestion", title="  ", message="Tekst")
+        bad_msg, _ = append_feedback(kind="suggestion", title="Titel", message="")
+
+    check("append_feedback ok", lambda: assert_true(ok and bool(msg)))
+    check("append_feedback rejects kind", lambda: assert_false(bad_kind))
+    check("append_feedback rejects title", lambda: assert_false(bad_title))
+    check("append_feedback rejects message", lambda: assert_false(bad_msg))
+
+    entries = load_feedback()
+    check("load_feedback count", lambda: assert_eq(len(entries), 1))
+    check("load_feedback fields", lambda: assert_true(
+        entries[0].get("kind") == "bug"
+        and entries[0].get("username") == "tester"
+        and entries[0].get("title") == "Knappen virker ikke"
+        and FEEDBACK_PATH.exists()
+    ))
+
+
 def test_storage_gdpr_helpers() -> None:
     print("\n== storage (gdpr helpers) ==")
     from unittest.mock import patch
@@ -839,6 +874,7 @@ def main() -> int:
     test_auth()
     test_licensing()
     test_storage_gdpr_helpers()
+    test_feedback_storage()
     test_ui_styles()
     test_excel_export()
     test_citizen_list_helpers()

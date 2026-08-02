@@ -268,6 +268,7 @@ def clear_master_register() -> None:
             APP_SETTINGS_PATH.name,
             AUTH_SESSIONS_PATH.name,
             LOGIN_ATTEMPTS_PATH.name,
+            FEEDBACK_PATH.name,
         }
         for path in DATA_DIR.glob("*.json"):
             if path.name in preserved:

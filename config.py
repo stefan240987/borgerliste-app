@@ -12,12 +12,17 @@ MASTER_REFERENCE_REGISTER_PATH = DATA_DIR / "master_reference_register.json"
 USER_PREFERENCES_PATH = DATA_DIR / "user_preferences.json"
 USERS_PATH = DATA_DIR / "users.json"
 AUDIT_LOG_PATH = DATA_DIR / "audit_log.json"
+FEEDBACK_PATH = DATA_DIR / "feedback.json"
 USER_DATA_ROOT = DATA_DIR / "user_data"
 LEGACY_ACTIVE_LIST_PARQUET = DATA_DIR / "active_borgerliste.parquet"
 LEGACY_ACTIVE_LIST_CSV = DATA_DIR / "active_borgerliste.csv"
 LEGACY_ACTIVE_SESSION_PATH = DATA_DIR / "active_session.json"
 USER_ROLES = ("admin", "user")
 MAX_AUDIT_ENTRIES = 10000
+MAX_FEEDBACK_ENTRIES = 5000
+MAX_FEEDBACK_TITLE_LENGTH = 120
+MAX_FEEDBACK_MESSAGE_LENGTH = 4000
+FEEDBACK_KINDS = ("bug", "suggestion")
 DEFAULT_ADMIN_USERNAME = "admin"
 MIN_PASSWORD_LENGTH = 12
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -39,7 +44,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.21"
+APP_VERSION = "1.5.22"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -284,6 +289,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_account": "Min konto",
         "nav_privacy": "Privatliv og datasikkerhed",
         "nav_about": "Om Borgerflow",
+        "nav_feedback": "Feedback",
         "sidebar_pin": "Fastgør menuen, så den ikke lukker automatisk",
         "sidebar_unpin": "Menu fastgjort — klik for at frigøre",
         "account_title": "Min konto",
@@ -292,10 +298,35 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "about_bullet_1": "**Holde hurtigt overblik:** Se præcis hvilke borgere der mangler afklaring, har takket ja/nej eller skal ringes op igen.",
         "about_bullet_2": "**Registrere opkald med ét klik:** Gem status og noter med det samme, så du og dine kolleger aldrig ringer forgæves eller dobbelt.",
         "about_bullet_3": "**Sikre et smidigt borgerforløb:** Bevar overblikket over genopkald og aftaler uden risiko for, at borgere overses.",
+        "feedback_title": "Feedback",
+        "feedback_lead": "Har du fundet en fejl, eller har du et forslag til forbedring? Send det her — vi læser alle indsendelser.",
+        "feedback_kind_label": "Type",
+        "feedback_kind_bug": "Fejlrapport",
+        "feedback_kind_suggestion": "Forbedringsforslag",
+        "feedback_title_label": "Titel",
+        "feedback_message_label": "Beskrivelse",
+        "feedback_submit": "Send feedback",
+        "feedback_success": "Tak — din feedback er sendt.",
+        "feedback_error_title": "Angiv en titel (maks. {max} tegn).",
+        "feedback_error_message": "Angiv en beskrivelse (maks. {max} tegn).",
+        "feedback_error_kind": "Vælg type.",
         "account_profile_tab": "Profil",
         "account_admin_users_tab": "Brugere",
         "account_admin_master_tab": "Master-register",
         "account_admin_audit_tab": "Status-log",
+        "account_admin_feedback_tab": "Feedback",
+        "admin_feedback_title": "Brugerfeedback",
+        "admin_feedback_caption": "Fejlrapporter og forbedringsforslag fra brugere.",
+        "admin_feedback_empty": "Ingen feedback endnu.",
+        "admin_feedback_all_kinds": "Alle typer",
+        "admin_feedback_all_users": "Alle brugere",
+        "admin_feedback_filter_kind": "Filtrer type",
+        "admin_feedback_filter_user": "Filtrer bruger",
+        "admin_feedback_col_time": "Tidspunkt",
+        "admin_feedback_col_user": "Bruger",
+        "admin_feedback_col_kind": "Type",
+        "admin_feedback_col_title": "Titel",
+        "admin_feedback_col_message": "Beskrivelse",
         "account_username_label": "Brugernavn",
         "account_role_label": "Rolle",
         "account_created_label": "Oprettet",
@@ -631,6 +662,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_account": "My account",
         "nav_privacy": "Privacy and data security",
         "nav_about": "About Borgerflow",
+        "nav_feedback": "Feedback",
         "sidebar_pin": "Pin menu to keep it open",
         "sidebar_unpin": "Menu pinned — click to unpin",
         "account_title": "My account",
@@ -639,10 +671,35 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "about_bullet_1": "**Keep a quick overview:** See exactly which citizens need clarification, have said yes/no, or need to be called again.",
         "about_bullet_2": "**Log calls with one click:** Save status and notes instantly, so you and your colleagues never call in vain or twice.",
         "about_bullet_3": "**Ensure a smooth citizen journey:** Keep track of callbacks and appointments without risking that citizens are overlooked.",
+        "feedback_title": "Feedback",
+        "feedback_lead": "Found a bug, or have an idea for improvement? Send it here — we read every submission.",
+        "feedback_kind_label": "Type",
+        "feedback_kind_bug": "Bug report",
+        "feedback_kind_suggestion": "Improvement suggestion",
+        "feedback_title_label": "Title",
+        "feedback_message_label": "Description",
+        "feedback_submit": "Send feedback",
+        "feedback_success": "Thank you — your feedback has been sent.",
+        "feedback_error_title": "Please enter a title (max {max} characters).",
+        "feedback_error_message": "Please enter a description (max {max} characters).",
+        "feedback_error_kind": "Please select a type.",
         "account_profile_tab": "Profile",
         "account_admin_users_tab": "Users",
         "account_admin_master_tab": "Master register",
         "account_admin_audit_tab": "Status log",
+        "account_admin_feedback_tab": "Feedback",
+        "admin_feedback_title": "User feedback",
+        "admin_feedback_caption": "Bug reports and improvement suggestions from users.",
+        "admin_feedback_empty": "No feedback yet.",
+        "admin_feedback_all_kinds": "All types",
+        "admin_feedback_all_users": "All users",
+        "admin_feedback_filter_kind": "Filter type",
+        "admin_feedback_filter_user": "Filter user",
+        "admin_feedback_col_time": "Time",
+        "admin_feedback_col_user": "User",
+        "admin_feedback_col_kind": "Type",
+        "admin_feedback_col_title": "Title",
+        "admin_feedback_col_message": "Description",
         "account_username_label": "Username",
         "account_role_label": "Role",
         "account_created_label": "Created",

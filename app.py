@@ -8,7 +8,7 @@ from auth import (
 from i18n import t
 from licensing import is_trial_expired
 from storage import DataLockTimeoutError, ensure_user_data_loaded, save_active_session_metadata
-from ui.admin import render_about_page, render_account_page, render_privacy_page
+from ui.admin import render_about_page, render_account_page, render_feedback_page, render_privacy_page
 from ui.trial_expired import render_trial_expired_page
 from ui.citizen_list import (
     filter_dataframe, render_citizen_list, render_pagination_bar, render_status_metrics,
@@ -70,6 +70,8 @@ def _run_app() -> None:
             render_privacy_page()
         elif active_page == "about":
             render_about_page()
+        elif active_page == "feedback":
+            render_feedback_page()
         else:
             render_trial_expired_page()
         finish_page(show_pin=True)
@@ -112,6 +114,11 @@ def _run_app() -> None:
 
     if st.session_state.get("active_page") == "about":
         render_about_page()
+        finish_page(show_pin=True)
+        return
+
+    if st.session_state.get("active_page") == "feedback":
+        render_feedback_page()
         finish_page(show_pin=True)
         return
 

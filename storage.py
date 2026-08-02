@@ -428,6 +428,7 @@ def migrate_legacy_data_to_user(username: str) -> None:
     preserved = {
         USERS_PATH.name,
         AUDIT_LOG_PATH.name,
+        FEEDBACK_PATH.name,
         MASTER_REFERENCE_REGISTER_PATH.name,
         USER_PREFERENCES_PATH.name,
         STATUS_HISTORY_PATH.name,
@@ -856,6 +857,83 @@ def append_audit_log(
     entries = load_audit_log()
     entries.append(entry)
     save_audit_log(entries)
+
+
+def _sanitize_feedback_entry(entry: dict) -> dict | None:
+    kind = str(entry.get("kind", "")).strip().lower()
+    if kind not in FEEDBACK_KINDS:
+        return None
+    title = str(entry.get("title", "")).strip()[:MAX_FEEDBACK_TITLE_LENGTH]
+    message = str(entry.get("message", "")).strip()[:MAX_FEEDBACK_MESSAGE_LENGTH]
+    if not title or not message:
+        return None
+    return {
+        "id": str(entry.get("id") or secrets.token_hex(8)),
+        "timestamp": str(entry.get("timestamp") or datetime.now().isoformat(timespec="seconds")),
+        "username": str(entry.get("username") or ""),
+        "kind": kind,
+        "title": title,
+        "message": message,
+    }
+
+
+def load_feedback() -> list[dict]:
+    data = _load_json_file(FEEDBACK_PATH, None)
+    if data is None:
+        return []
+    if isinstance(data, dict) and isinstance(data.get("entries"), list):
+        raw_entries = [entry for entry in data["entries"] if isinstance(entry, dict)]
+    elif isinstance(data, list):
+        raw_entries = [entry for entry in data if isinstance(entry, dict)]
+    else:
+        return []
+
+    entries: list[dict] = []
+    changed = False
+    for entry in raw_entries:
+        sanitized = _sanitize_feedback_entry(entry)
+        if sanitized is None:
+            changed = True
+            continue
+        if sanitized != entry:
+            changed = True
+        entries.append(sanitized)
+    if changed:
+        save_feedback(entries)
+    return entries
+
+
+def save_feedback(entries: list[dict]) -> None:
+    trimmed: list[dict] = []
+    for entry in entries[-MAX_FEEDBACK_ENTRIES:]:
+        if sanitized := _sanitize_feedback_entry(entry):
+            trimmed.append(sanitized)
+    _save_json_file(FEEDBACK_PATH, {"entries": trimmed})
+
+
+def append_feedback(*, kind: str, title: str, message: str) -> tuple[bool, str]:
+    kind_norm = str(kind or "").strip().lower()
+    if kind_norm not in FEEDBACK_KINDS:
+        return False, t("feedback_error_kind")
+    title_norm = str(title or "").strip()
+    message_norm = str(message or "").strip()
+    if not title_norm or len(title_norm) > MAX_FEEDBACK_TITLE_LENGTH:
+        return False, t("feedback_error_title", max=MAX_FEEDBACK_TITLE_LENGTH)
+    if not message_norm or len(message_norm) > MAX_FEEDBACK_MESSAGE_LENGTH:
+        return False, t("feedback_error_message", max=MAX_FEEDBACK_MESSAGE_LENGTH)
+
+    entry = {
+        "id": secrets.token_hex(8),
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "username": _auth_current_username(),
+        "kind": kind_norm,
+        "title": title_norm,
+        "message": message_norm,
+    }
+    entries = load_feedback()
+    entries.append(entry)
+    save_feedback(entries)
+    return True, t("feedback_success")
 
 
 def latest_audit_for_citizen(citizen_id: str) -> dict | None:

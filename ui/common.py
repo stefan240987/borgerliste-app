@@ -18,8 +18,8 @@ from storage import (
 )
 from ui.styles import inject_sidebar_controls
 
-VALID_PAGES = frozenset({"borgerliste", "account", "privacy", "about"})
-INFO_PAGES = frozenset({"account", "privacy", "about"})
+VALID_PAGES = frozenset({"borgerliste", "account", "privacy", "about", "feedback"})
+INFO_PAGES = frozenset({"account", "privacy", "about", "feedback"})
 ACCOUNT_TAB_SPECS_BASE: tuple[tuple[str, str], ...] = (
     ("profile", "account_profile_tab"),
     ("activity", "account_activity_tab"),
@@ -29,6 +29,7 @@ ACCOUNT_TAB_SPECS_ADMIN: tuple[tuple[str, str], ...] = (
     ("settings", "account_admin_settings_tab"),
     ("master", "account_admin_master_tab"),
     ("audit", "account_admin_audit_tab"),
+    ("feedback", "account_admin_feedback_tab"),
     ("gdpr", "account_admin_gdpr_tab"),
 )
 ADMIN_ONLY_ACCOUNT_TAB_SLUGS = frozenset(slug for slug, _ in ACCOUNT_TAB_SPECS_ADMIN)
@@ -251,6 +252,13 @@ def render_page_navigation() -> None:
         key="nav_about",
     ):
         navigate_to_page("about")
+    if st.sidebar.button(
+        t("nav_feedback"),
+        use_container_width=True,
+        type="primary" if current_page == "feedback" else "secondary",
+        key="nav_feedback",
+    ):
+        navigate_to_page("feedback")
     st.sidebar.markdown('<div class="sidebar-divider-spacer"></div>', unsafe_allow_html=True)
 
 

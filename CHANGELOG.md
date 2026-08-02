@@ -4,6 +4,22 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.22] — 2026-08-02 (Feedback — bugs og forbedringsforslag)
+
+### Tilføjet
+
+- **Feedback-side** — ny sidemenu-side hvor brugere kan indsende fejlrapporter eller forbedringsforslag (titel + beskrivelse). Tilgængelig også ved udløbet prøveperiode.
+- **Admin-feedback** — ny fane under Min konto hvor administratorer kan se og filtrere indsendelser (type/bruger). Gemmes lokalt i `data/feedback.json`.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.22
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.21] — 2026-08-02 (Om Borgerflow i sidemenu)
 
 ### Ændret

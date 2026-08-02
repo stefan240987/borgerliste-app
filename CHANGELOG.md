@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.23] — 2026-08-02 (Admin-feedback som læsbare kort)
+
+### Ændret
+
+- **Min konto → Feedback** — den tætte 5-kolonne-tabel er erstattet af en kortliste: type-badge, bruger, formateret tid, titel og fuld beskrivelse. Nemmere at skanne og læse længere indsendelser uden overlappende kolonner.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.23
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.22] — 2026-08-02 (Feedback — bugs og forbedringsforslag)
 
 ### Tilføjet

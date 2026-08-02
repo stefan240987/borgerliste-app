@@ -681,6 +681,8 @@ def test_ui_styles() -> None:
         inject_sidebar_controls,
         status_pill_html,
         citizen_field_html,
+        feedback_card_html,
+        feedback_kind_badge_html,
     )
     from config import THEME_PALETTES
     from unittest.mock import patch
@@ -688,9 +690,32 @@ def test_ui_styles() -> None:
     check("_login_page_css", lambda: assert_true(len(_login_page_css()) > 100))
     check("_base_css_rules", lambda: assert_true("upload" in _base_css_rules("Vælg fil").lower() or len(_base_css_rules("x")) > 100))
     check("_citizen_card_css", lambda: assert_true("citizen-card-anchor" in _citizen_card_css()))
-    check("_themed_css_rules", lambda: assert_true(len(_themed_css_rules(THEME_PALETTES["Lyst tema"], "#fff")) > 100))
+    themed = _themed_css_rules(THEME_PALETTES["Lyst tema"], "#fff")
+    check("_themed_css_rules", lambda: assert_true(len(themed) > 100))
+    check("feedback-card css", lambda: assert_true(".feedback-card" in themed and "feedback-bug" in themed))
     check("status_pill_html", lambda: assert_true("status-pill" in status_pill_html("Accepteret tilbud")))
     check("citizen_field_html", lambda: assert_true("citizen-field" in citizen_field_html("Navn", "Anna")))
+    check(
+        "feedback_kind_badge_html",
+        lambda: assert_true("admin-badge--feedback-suggestion" in feedback_kind_badge_html("suggestion")),
+    )
+    card = feedback_card_html(
+        kind="bug",
+        username="heidi",
+        timestamp="02.08.2026 · 14:10",
+        title="Titel",
+        message="Beskrivelse med\nlinjeskift",
+    )
+    check(
+        "feedback_card_html",
+        lambda: assert_true(
+            "feedback-card" in card
+            and "heidi" in card
+            and "Titel" in card
+            and "Beskrivelse" in card
+            and "admin-badge--feedback-bug" in card
+        ),
+    )
 
     captured: dict[str, str] = {}
 

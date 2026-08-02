@@ -56,6 +56,38 @@ def admin_municipality_badges_html(municipalities: list[str] | None = None) -> s
     return f'<span class="admin-municipality-group">{chips}</span>'
 
 
+def feedback_kind_badge_html(kind: str) -> str:
+    key = f"feedback_kind_{kind}"
+    label = t(key)
+    if label == key:
+        label = kind
+    variant = "feedback-bug" if kind == "bug" else "feedback-suggestion"
+    return _admin_badge(label, variant)
+
+
+def feedback_card_html(
+    *,
+    kind: str,
+    username: str,
+    timestamp: str,
+    title: str,
+    message: str,
+) -> str:
+    meta_parts = [
+        feedback_kind_badge_html(kind),
+        f'<span class="feedback-card-meta-item">{html.escape(username)}</span>' if username else "",
+        f'<span class="feedback-card-meta-item">{html.escape(timestamp)}</span>' if timestamp else "",
+    ]
+    meta_html = "".join(part for part in meta_parts if part)
+    return (
+        f'<div class="feedback-card">'
+        f'<div class="feedback-card-meta">{meta_html}</div>'
+        f'<div class="feedback-card-title">{html.escape(title)}</div>'
+        f'<div class="feedback-card-message">{html.escape(message)}</div>'
+        f"</div>"
+    )
+
+
 def citizen_field_html(label: str, value: object, *, emphasized: bool = False) -> str:
     safe_label = html.escape(label)
     safe_value = html.escape(str(value))
@@ -1269,6 +1301,16 @@ def _admin_badge_css(scheme: str) -> str:
     color: #E0E7FF !important;
     border-color: #6366F1 !important;
 }
+.admin-badge--feedback-bug {
+    background: #7F1D1D !important;
+    color: #FECACA !important;
+    border-color: #EF4444 !important;
+}
+.admin-badge--feedback-suggestion {
+    background: #1E3A8A !important;
+    color: #DBEAFE !important;
+    border-color: #3B82F6 !important;
+}
 .admin-municipality-none {
     color: var(--app-text-muted, #94A3B8);
     font-size: 0.85rem;
@@ -1357,6 +1399,16 @@ def _admin_badge_css(scheme: str) -> str:
     color: #3730A3 !important;
     border-color: #A5B4FC !important;
 }
+.admin-badge--feedback-bug {
+    background: #FEE2E2 !important;
+    color: #991B1B !important;
+    border-color: #FCA5A5 !important;
+}
+.admin-badge--feedback-suggestion {
+    background: #DBEAFE !important;
+    color: #1E40AF !important;
+    border-color: #93C5FD !important;
+}
 .admin-municipality-none {
     color: var(--app-text-muted, #64748B);
     font-size: 0.85rem;
@@ -1417,6 +1469,8 @@ def _account_section_css(scheme: str) -> str:
         danger_title = "#FCA5A5"
         metric_value = "#F8FAFC"
         metric_label = "#94A3B8"
+        feedback_card_bg = "rgba(30, 41, 59, 0.55)"
+        feedback_card_border = "var(--app-border, #334155)"
     else:
         panel_bg = "transparent"
         divider = "var(--app-border, #E7E5E4)"
@@ -1427,6 +1481,8 @@ def _account_section_css(scheme: str) -> str:
         danger_title = "#B91C1C"
         metric_value = "#0F172A"
         metric_label = "#64748B"
+        feedback_card_bg = "rgba(248, 250, 252, 0.9)"
+        feedback_card_border = "var(--app-border, #E7E5E4)"
 
     return f"""
 .account-section {{
@@ -1438,6 +1494,42 @@ def _account_section_css(scheme: str) -> str:
 .account-panel-divider {{
     border-top: 1px solid {divider};
     margin: 1.25rem 0;
+}}
+.feedback-card {{
+    margin: 0.85rem 0;
+    padding: 0.95rem 1.05rem;
+    border-radius: 10px;
+    border: 1px solid {feedback_card_border};
+    background: {feedback_card_bg};
+}}
+.feedback-card-meta {{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.75rem;
+    margin-bottom: 0.55rem;
+}}
+.feedback-card-meta-item {{
+    color: var(--app-text-muted);
+    font-size: 0.85rem;
+    line-height: 1.35;
+}}
+.feedback-card-title {{
+    font-size: 1.02rem;
+    font-weight: 700;
+    line-height: 1.35;
+    margin-bottom: 0.4rem;
+    overflow-wrap: anywhere;
+}}
+.feedback-card-message {{
+    font-size: 0.95rem;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--app-text, inherit);
+}}
+.feedback-card-list {{
+    margin-top: 0.35rem;
 }}
 [data-testid="stTabs"] h4 {{
     font-size: 1.05rem !important;

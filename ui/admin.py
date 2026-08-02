@@ -28,19 +28,27 @@ from storage import (
 from ui.common import account_tab_specs, inject_account_tab_url_sync, resolve_account_tab_default_label
 from ui.styles import (
     admin_license_badge_html, admin_municipality_badges_html, admin_role_badge_html,
-    status_pill_html,
+    feedback_card_html, status_pill_html,
 )
 
 _ADMIN_USER_COL_WEIGHTS = [2.0, 1.0, 1.0, 1.3, 1.0, 1.0]
 _AUDIT_COL_WEIGHTS_ADMIN = [1.5, 1.0, 2.0, 1.0, 1.0]
 _AUDIT_COL_WEIGHTS_USER = [1.5, 2.0, 1.0, 1.0]
-_FEEDBACK_COL_WEIGHTS = [1.3, 1.0, 1.0, 1.5, 2.5]
 
 
 def _feedback_kind_label(kind: str) -> str:
     key = f"feedback_kind_{kind}"
     label = t(key)
     return label if label != key else kind
+
+
+def _format_feedback_timestamp(raw: object) -> str:
+    if not raw:
+        return "—"
+    try:
+        return datetime.fromisoformat(str(raw)).strftime("%d.%m.%Y · %H:%M")
+    except ValueError:
+        return str(raw)
 
 
 def _account_panel_divider() -> None:
@@ -719,35 +727,20 @@ def render_feedback_page() -> None:
                 st.error(result_message)
 
 
-def _render_feedback_table(entries: list[dict]) -> None:
-    header_keys = (
-        "admin_feedback_col_time",
-        "admin_feedback_col_user",
-        "admin_feedback_col_kind",
-        "admin_feedback_col_title",
-        "admin_feedback_col_message",
-    )
-    header_cols = st.columns(_FEEDBACK_COL_WEIGHTS)
-    for col, key in zip(header_cols, header_keys):
-        col.markdown(
-            f'<div class="account-table-header">{html.escape(t(key))}</div>',
+def _render_feedback_cards(entries: list[dict]) -> None:
+    st.markdown('<div class="feedback-card-list">', unsafe_allow_html=True)
+    for entry in entries:
+        st.markdown(
+            feedback_card_html(
+                kind=str(entry.get("kind", "")),
+                username=str(entry.get("username", "")),
+                timestamp=_format_feedback_timestamp(entry.get("timestamp")),
+                title=str(entry.get("title", "")),
+                message=str(entry.get("message", "")),
+            ),
             unsafe_allow_html=True,
         )
-
-    for entry in entries:
-        cols = st.columns(_FEEDBACK_COL_WEIGHTS)
-        values = (
-            str(entry.get("timestamp", "")),
-            str(entry.get("username", "")),
-            _feedback_kind_label(str(entry.get("kind", ""))),
-            str(entry.get("title", "")),
-            str(entry.get("message", "")),
-        )
-        for col, value in zip(cols, values):
-            col.markdown(
-                f'<div class="account-table-row">{html.escape(value)}</div>',
-                unsafe_allow_html=True,
-            )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_admin_feedback_section() -> None:
@@ -779,7 +772,11 @@ def render_admin_feedback_section() -> None:
     if filter_user != t("admin_feedback_all_users"):
         filtered = [entry for entry in filtered if entry.get("username") == filter_user]
 
-    _render_feedback_table(list(reversed(filtered[-500:])))
+    if not filtered:
+        st.info(t("admin_feedback_empty"))
+        return
+
+    _render_feedback_cards(list(reversed(filtered[-500:])))
 
 
 def render_account_page() -> None:

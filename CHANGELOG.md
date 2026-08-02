@@ -4,6 +4,25 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.27] — 2026-08-02 (Indsats-filter og By-label)
+
+### Tilføjet
+
+- **Indsats-filter** — når uploadede lister indeholder `Indsats navn`, vises et filter ved siden af "Vis pr. side" med de forekommende indsats-typer. Filteret er skjult, hvis kolonnen ikke er med.
+
+### Ændret
+
+- **By i stedet for Adresse** — UI-label, upload-tekster, søgefelt og Excel-eksport viser nu "By" (EN: City). Intern datamodel og matching er uændret.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.27
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.26] — 2026-08-02 (Indsats navn i session)
 
 ### Tilføjet

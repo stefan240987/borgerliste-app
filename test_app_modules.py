@@ -60,6 +60,8 @@ def test_i18n() -> None:
     check("t(da)", lambda: assert_eq(t("app_title"), "Borgerflow"))
     check("status_label", lambda: assert_eq(status_label("Accepteret tilbud"), "Accepteret tilbud"))
     check("filter_label", lambda: assert_true(len(filter_label("all")) > 0))
+    check("col_address is By", lambda: assert_eq(t("col_address"), "By"))
+    check("indsats_filter_all", lambda: assert_eq(t("indsats_filter_all"), "Alle indsatser"))
 
 
 def test_data_io() -> None:
@@ -884,16 +886,32 @@ def test_excel_export() -> None:
         "to_excel_bytes excludes Indsats navn",
         lambda: assert_false("Forløb Moc".encode("utf-8") in to_excel_bytes(df)),
     )
+    def _excel_headers() -> list[str]:
+        from openpyxl import load_workbook
+        from io import BytesIO
+
+        wb = load_workbook(BytesIO(to_excel_bytes(df)), read_only=True)
+        try:
+            return [cell.value for cell in next(wb.active.iter_rows(min_row=1, max_row=1))]
+        finally:
+            wb.close()
+
+    check(
+        "to_excel_bytes uses By header",
+        lambda: assert_true("By" in _excel_headers() and "Adresse" not in _excel_headers()),
+    )
 
 
 def test_citizen_list_helpers() -> None:
     print("\n== ui/citizen_list helpers ==")
     from unittest.mock import patch
 
+    from config import INDSATS_FILTER_ALL
     from ui.citizen_list import (
         _safe_row_text,
         filter_dataframe,
         handle_citizen_status_change,
+        indsats_filter_options,
         resolve_page_size,
         _coerce_uploaded_file,
     )
@@ -905,6 +923,50 @@ def test_citizen_list_helpers() -> None:
     check("filter_dataframe all", lambda: assert_eq(len(filter_dataframe(df, "all", "")), 2))
     check("filter_dataframe accepted", lambda: assert_eq(len(filter_dataframe(df, "accepted", "")), 1))
     check("filter_dataframe search", lambda: assert_eq(len(filter_dataframe(df, "all", "anna")), 1))
+    check(
+        "indsats_filter_options absent",
+        lambda: assert_eq(indsats_filter_options(df), None),
+    )
+
+    indsats_df = pd.DataFrame([
+        {
+            "Navn": "Anna", "Adresse": "A", "Telefonnummer": "1",
+            "Indsats navn": "§ 10 Forløb Moc", "Status": "Ikke kontaktet endnu",
+        },
+        {
+            "Navn": "Bent", "Adresse": "B", "Telefonnummer": "2",
+            "Indsats navn": "§ 85 Socialpædagogisk bistand", "Status": "Accepteret tilbud",
+        },
+        {
+            "Navn": "Chris", "Adresse": "C", "Telefonnummer": "3",
+            "Indsats navn": "§ 10 Forløb Moc", "Status": "Ikke kontaktet endnu",
+        },
+        {
+            "Navn": "Dan", "Adresse": "D", "Telefonnummer": "4",
+            "Indsats navn": "", "Status": "Ikke kontaktet endnu",
+        },
+    ])
+    check(
+        "indsats_filter_options unique",
+        lambda: assert_eq(
+            indsats_filter_options(indsats_df),
+            ["§ 10 Forløb Moc", "§ 85 Socialpædagogisk bistand"],
+        ),
+    )
+    check(
+        "filter_dataframe indsats all",
+        lambda: assert_eq(
+            len(filter_dataframe(indsats_df, "all", "", INDSATS_FILTER_ALL)),
+            4,
+        ),
+    )
+    check(
+        "filter_dataframe indsats specific",
+        lambda: assert_eq(
+            len(filter_dataframe(indsats_df, "all", "", "§ 10 Forløb Moc")),
+            2,
+        ),
+    )
     check("resolve_page_size Alle", lambda: assert_eq(resolve_page_size("Alle", 10), 10))
     check("resolve_page_size one", lambda: assert_eq(resolve_page_size(1, 10), 1))
     check("_coerce_uploaded_file None", lambda: assert_eq(_coerce_uploaded_file(None), None))

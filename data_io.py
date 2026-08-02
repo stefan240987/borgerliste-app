@@ -7,6 +7,7 @@ import pandas as pd
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 from config import (
     COLUMN_ALIASES, CSV_ENCODINGS, DANISH_CHARS, MAX_UPLOAD_BYTES, MOJIBAKE_MARKERS,
+    COLUMN_LABEL_KEYS,
     TRANSIENT_COLUMN_ALIASES,
 )
 from i18n import t
@@ -195,7 +196,9 @@ def standardize_dataframe(raw: pd.DataFrame) -> pd.DataFrame:
     for target in COLUMN_ALIASES:
         source = find_column(raw, target)
         if source is None:
-            raise ValueError(t("missing_column", column=target))
+            label_key = COLUMN_LABEL_KEYS.get(target)
+            column_label = t(label_key) if label_key else target
+            raise ValueError(t("missing_column", column=column_label))
         mapping[target] = source
 
     df = raw[[mapping["Navn"], mapping["Adresse"], mapping["Telefonnummer"]]].copy()

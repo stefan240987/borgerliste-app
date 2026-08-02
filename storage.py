@@ -643,6 +643,7 @@ def clear_active_list(*, username: str | None = None, list_key: str | None = Non
     st.session_state.page_number = 0
     st.session_state.page_size = 25
     st.session_state.selected_filter = "all"
+    st.session_state.indsats_filter = INDSATS_FILTER_ALL
     st.session_state.search_query = ""
     st.session_state.filter_signature = None
     st.session_state.show_uploader = True

@@ -5,7 +5,9 @@ from datetime import datetime
 from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
-from config import LOGO_PATH, PAGE_SIZE_OPTIONS, THEME_ICONS, THEME_OPTIONS
+from config import (
+    INDSATS_FILTER_ALL, LOGO_PATH, PAGE_SIZE_OPTIONS, THEME_ICONS, THEME_OPTIONS,
+)
 from auth import (
     current_session_expires_at, current_user, get_user_record, inject_session_idle_reload_watch,
     is_admin, logout_user, role_label,
@@ -313,6 +315,7 @@ def init_session_state() -> None:
         "page_number": 0,
         "page_size": 25,
         "selected_filter": "all",
+        "indsats_filter": INDSATS_FILTER_ALL,
         "search_query": "",
         "filter_signature": None,
         "show_uploader": True,

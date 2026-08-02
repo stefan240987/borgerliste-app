@@ -9,9 +9,9 @@ import pandas as pd
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import DeletedFile, UploadedFile
 from config import (
-    DISPLAY_COLUMNS, FILTER_MAP, MAX_AUDIT_ENTRIES, OVERVIEW_CARDS, PAGE_SIZE_OPTIONS,
-    STATUSES, STATUS_HISTORY_PATH, STATUS_TO_FILTER, MASTER_REFERENCE_REGISTER_PATH,
-    AUDIT_LOG_PATH,
+    DISPLAY_COLUMNS, FILTER_MAP, INDSATS_FILTER_ALL, MAX_AUDIT_ENTRIES, OVERVIEW_CARDS,
+    PAGE_SIZE_OPTIONS, STATUSES, STATUS_HISTORY_PATH, STATUS_TO_FILTER,
+    MASTER_REFERENCE_REGISTER_PATH, AUDIT_LOG_PATH,
 )
 from auth import current_user, current_username
 from data_io import read_uploaded_file, repair_text, standardize_dataframe
@@ -33,7 +33,26 @@ from storage import (
 from ui.styles import citizen_field_html, status_pill_html
 
 
-def filter_dataframe(df: pd.DataFrame, filter_key: str, search: str) -> pd.DataFrame:
+def indsats_filter_options(df: pd.DataFrame | None) -> list[str] | None:
+    if df is None or df.empty or "Indsats navn" not in df.columns:
+        return None
+    values = sorted(
+        {
+            text
+            for text in (repair_text(value) for value in df["Indsats navn"].tolist())
+            if text
+        },
+        key=str.casefold,
+    )
+    return values or None
+
+
+def filter_dataframe(
+    df: pd.DataFrame,
+    filter_key: str,
+    search: str,
+    indsats_filter: str | None = None,
+) -> pd.DataFrame:
     selected = FILTER_MAP.get(filter_key, STATUSES)
     filtered = df[df["Status"].isin(selected)].copy()
     if search.strip():
@@ -42,6 +61,14 @@ def filter_dataframe(df: pd.DataFrame, filter_key: str, search: str) -> pd.DataF
             filtered["Navn"].str.lower().str.contains(needle, na=False)
             | filtered["Adresse"].str.lower().str.contains(needle, na=False)
             | filtered["Telefonnummer"].str.lower().str.contains(needle, na=False)
+        ]
+    if (
+        indsats_filter
+        and indsats_filter != INDSATS_FILTER_ALL
+        and "Indsats navn" in filtered.columns
+    ):
+        filtered = filtered[
+            filtered["Indsats navn"].map(repair_text) == indsats_filter
         ]
     return filtered.reset_index(drop=True)
 
@@ -156,6 +183,7 @@ def handle_file_upload(uploaded) -> bool:
         st.session_state.page_number = 0
         st.session_state.page_size = 25
         st.session_state.selected_filter = "all"
+        st.session_state.indsats_filter = INDSATS_FILTER_ALL
         st.session_state.search_query = ""
         st.session_state.filter_signature = None
         st.session_state.show_uploader = False
@@ -286,7 +314,12 @@ def resolve_page_size(selected: int | str, total_rows: int) -> int:
     return int(selected)
 
 
-def render_pagination_bar(total_rows: int, page_size: int, page_number: int) -> tuple[int, int, int]:
+def render_pagination_bar(
+    total_rows: int,
+    page_size: int,
+    page_number: int,
+    indsats_options: list[str] | None = None,
+) -> tuple[int, int, int]:
     total_pages = max(1, (total_rows + page_size - 1) // page_size) if total_rows else 1
     page_number = min(max(page_number, 0), total_pages - 1)
     start = page_number * page_size
@@ -312,8 +345,16 @@ def render_pagination_bar(total_rows: int, page_size: int, page_number: int) -> 
                 st.session_state.page_number = min(page_number + 1, total_pages - 1)
                 st.rerun()
 
-    size_cols = st.columns([1, 1.2, 1])
-    with size_cols[1]:
+    if indsats_options:
+        size_cols = st.columns([0.8, 1.2, 1.4, 0.8])
+        page_size_col = size_cols[1]
+        indsats_col = size_cols[2]
+    else:
+        size_cols = st.columns([1, 1.2, 1])
+        page_size_col = size_cols[1]
+        indsats_col = None
+
+    with page_size_col:
         page_size_choice = st.selectbox(
             t("page_size_label"),
             PAGE_SIZE_OPTIONS,
@@ -324,6 +365,26 @@ def render_pagination_bar(total_rows: int, page_size: int, page_number: int) -> 
         )
         if page_size_choice != st.session_state.page_size:
             st.session_state.page_size = page_size_choice
+            st.session_state.page_number = 0
+            st.rerun()
+
+    if indsats_col is not None and indsats_options:
+        choices = [INDSATS_FILTER_ALL, *indsats_options]
+        current_indsats = st.session_state.get("indsats_filter", INDSATS_FILTER_ALL)
+        if current_indsats not in choices:
+            current_indsats = INDSATS_FILTER_ALL
+            st.session_state.indsats_filter = INDSATS_FILTER_ALL
+        with indsats_col:
+            indsats_choice = st.selectbox(
+                t("indsats_filter_label"),
+                choices,
+                index=choices.index(current_indsats),
+                format_func=lambda value: (
+                    t("indsats_filter_all") if value == INDSATS_FILTER_ALL else value
+                ),
+            )
+        if indsats_choice != st.session_state.get("indsats_filter", INDSATS_FILTER_ALL):
+            st.session_state.indsats_filter = indsats_choice
             st.session_state.page_number = 0
             st.rerun()
 

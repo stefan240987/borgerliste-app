@@ -46,7 +46,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.26"
+APP_VERSION = "1.5.27"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -244,20 +244,20 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "upload_expander_change": "📂 Upload / Skift borgerliste",
         "upload_loaded": "{filename} — {count} borgere indlæst",
         "upload_select_new": "Vælg ny fil",
-        "upload_hint": "Vælg en Excel- eller CSV-fil med kolonnerne Navn, Adresse og Telefonnummer.",
+        "upload_hint": "Vælg en Excel- eller CSV-fil med kolonnerne Navn, By og Telefonnummer.",
         "upload_hint_new": "Vælg en ny fil, eller annuller for at beholde nuværende liste.",
         "upload_drag_hint": "Træk en fil hertil, eller klik for at vælge",
         "upload_browse": "Vælg fil",
         "upload_success": "{count} borgere er klar",
         "upload_keep_current": "Behold nuværende liste",
-        "upload_error": "Kunne ikke læse filen. Tjek at den har kolonnerne Navn, Adresse og Telefon.",
+        "upload_error": "Kunne ikke læse filen. Tjek at den har kolonnerne Navn, By og Telefon.",
         "missing_column": "Mangler kolonnen '{column}' i filen.",
         "upload_get_started": "Upload en fil ovenfor for at komme i gang.",
         "overview": "Overblik",
         "overview_filter_hint": "Klik en knap under et kort for at filtrere borgerlisten",
         "filter_apply": "Filtrer",
         "filter_show_all": "Vis alle borgere",
-        "search_placeholder": "Navn, adresse eller telefon...",
+        "search_placeholder": "Navn, by eller telefon...",
         "citizens_summary": "{total} borgere i alt · {shown} vises med nuværende filter",
         "citizens_heading": "Borgere",
         "prev": "← Forrige",
@@ -269,6 +269,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "page_size_all": "Alle pr. side",
         "page_size_one": "Én ad gangen",
         "page_size_n": "{n} pr. side",
+        "indsats_filter_label": "Indsats navn",
+        "indsats_filter_all": "Alle indsatser",
         "change_status": "Skift status",
         "last_updated": "Sidst opdateret: {date}",
         "call_again_date": "Ring igen: {date}",
@@ -492,7 +494,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "col_name": "Navn",
         "col_personnummer": "Personnummer",
         "col_indsats_navn": "Indsats navn",
-        "col_address": "Adresse",
+        "col_address": "By",
         "col_phone": "Telefonnummer",
         "col_status": "Status",
         "col_status_date": "Status dato",
@@ -632,20 +634,20 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "upload_expander_change": "📂 Upload / Change list",
         "upload_loaded": "{filename} — {count} citizens loaded",
         "upload_select_new": "Choose new file",
-        "upload_hint": "Choose an Excel or CSV file with columns Name, Address and Phone number.",
+        "upload_hint": "Choose an Excel or CSV file with columns Name, City and Phone number.",
         "upload_hint_new": "Choose a new file, or cancel to keep the current list.",
         "upload_drag_hint": "Drag a file here, or click to browse",
         "upload_browse": "Choose file",
         "upload_success": "{count} citizens ready",
         "upload_keep_current": "Keep current list",
-        "upload_error": "Could not read the file. Check that it has Name, Address and Phone columns.",
+        "upload_error": "Could not read the file. Check that it has Name, City and Phone columns.",
         "missing_column": "Missing column '{column}' in the file.",
         "upload_get_started": "Upload a file above to get started.",
         "overview": "Overview",
         "overview_filter_hint": "Click a button below a card to filter the citizen list",
         "filter_apply": "Filter",
         "filter_show_all": "Show all citizens",
-        "search_placeholder": "Name, address or phone...",
+        "search_placeholder": "Name, city or phone...",
         "citizens_summary": "{total} citizens in total · {shown} shown with current filter",
         "citizens_heading": "Citizens",
         "prev": "← Previous",
@@ -657,6 +659,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "page_size_all": "All rows",
         "page_size_one": "One at a time",
         "page_size_n": "{n} per page",
+        "indsats_filter_label": "Intervention name",
+        "indsats_filter_all": "All interventions",
         "change_status": "Change status",
         "last_updated": "Last updated: {date}",
         "call_again_date": "Call again: {date}",
@@ -880,7 +884,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "col_name": "Name",
         "col_personnummer": "National ID (CPR)",
         "col_indsats_navn": "Intervention name",
-        "col_address": "Address",
+        "col_address": "City",
         "col_phone": "Phone number",
         "col_status": "Status",
         "col_status_date": "Status date",
@@ -944,6 +948,12 @@ COLUMN_ALIASES = {
         "telefon", "telefonnummer", "tlf", "tlfnr", "mobil", "phone", "telefon nr", "telefon nr.",
     ],
 }
+COLUMN_LABEL_KEYS = {
+    "Navn": "col_name",
+    "Adresse": "col_address",
+    "Telefonnummer": "col_phone",
+}
+INDSATS_FILTER_ALL = "__all__"
 TRANSIENT_COLUMN_ALIASES = {
     "Personnummer": [
         "personnummer", "cpr", "cpr-nr.", "cpr-nr", "cpr nr", "cpr nr.",

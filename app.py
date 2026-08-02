@@ -10,9 +10,11 @@ from licensing import is_trial_expired
 from storage import DataLockTimeoutError, ensure_user_data_loaded, save_active_session_metadata
 from ui.admin import render_about_page, render_account_page, render_feedback_page, render_privacy_page
 from ui.trial_expired import render_trial_expired_page
+from config import INDSATS_FILTER_ALL
 from ui.citizen_list import (
-    filter_dataframe, render_citizen_list, render_pagination_bar, render_status_metrics,
-    render_upload_section, resolve_page_size, sync_session_df_with_master,
+    filter_dataframe, indsats_filter_options, render_citizen_list, render_pagination_bar,
+    render_status_metrics, render_upload_section, resolve_page_size,
+    sync_session_df_with_master,
 )
 from ui.common import (
     INFO_PAGES, finish_page, init_session_state, render_page_navigation, render_sidebar_content,
@@ -135,17 +137,31 @@ def _run_app() -> None:
         label_visibility="collapsed",
     )
     selected_filter = st.session_state.get("selected_filter", "all")
-    filtered_df = filter_dataframe(df, selected_filter, search)
+    indsats_options = indsats_filter_options(df)
+    if indsats_options is None:
+        st.session_state.indsats_filter = INDSATS_FILTER_ALL
+    elif st.session_state.get("indsats_filter", INDSATS_FILTER_ALL) not in (
+        INDSATS_FILTER_ALL,
+        *indsats_options,
+    ):
+        st.session_state.indsats_filter = INDSATS_FILTER_ALL
+    indsats_filter = st.session_state.get("indsats_filter", INDSATS_FILTER_ALL)
+    filtered_df = filter_dataframe(df, selected_filter, search, indsats_filter)
     st.caption(t("citizens_summary", total=len(df), shown=len(filtered_df)))
 
-    filter_signature = f"{selected_filter}|{search.strip().lower()}"
+    filter_signature = f"{selected_filter}|{search.strip().lower()}|{indsats_filter}"
     if st.session_state.filter_signature != filter_signature:
         st.session_state.filter_signature = filter_signature
         st.session_state.page_number = 0
 
     st.markdown(f"#### {t('citizens_heading')}")
     page_size = resolve_page_size(st.session_state.page_size, len(filtered_df))
-    start, end, _page_number = render_pagination_bar(len(filtered_df), page_size, st.session_state.page_number)
+    start, end, _page_number = render_pagination_bar(
+        len(filtered_df),
+        page_size,
+        st.session_state.page_number,
+        indsats_options=indsats_options,
+    )
 
     render_citizen_list(filtered_df.iloc[start:end])
     save_active_session_metadata()

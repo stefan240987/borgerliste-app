@@ -591,6 +591,7 @@ def render_admin_gdpr_section() -> None:
 
     st.markdown(f"#### {t('admin_retention_title')}")
     current_months = configured_retention_months()
+    st.caption(t("admin_retention_help"))
     if current_months <= 0:
         st.caption(t("admin_retention_disabled"))
     else:
@@ -626,7 +627,11 @@ def render_admin_gdpr_section() -> None:
     _account_panel_divider()
     st.markdown(f"#### {t('admin_gdpr_processing_title')}")
     st.markdown(f'<div class="account-gdpr-table-note"></div>', unsafe_allow_html=True)
-    st.markdown(t("admin_gdpr_processing_body"))
+    if current_months <= 0:
+        retention_text = t("admin_gdpr_retention_disabled")
+    else:
+        retention_text = t("admin_gdpr_retention_active", months=current_months)
+    st.markdown(t("admin_gdpr_processing_body", retention=retention_text))
 
 
 def render_audit_log_section(*, admin_view: bool = True) -> None:

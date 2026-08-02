@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.20] — 2026-08-02 (GDPR-fane — retention og Art. 30)
+
+### Ændret
+
+- **Min konto → GDPR** — tydeligere hjælpetekst for dataopbevaring; behandlingsfortegnelsen (Art. 30) viser den konfigurerede opbevaringsperiode dynamisk og præciserer, at CPR kun behandles midlertidigt i upload-sessionen. Kun tekst/UI/i18n — ingen ændring af sletnings- eller datalogik.
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.20
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.19] — 2026-08-02 (Privatlivsside — letlæselig GDPR-tekst)
 
 ### Ændret

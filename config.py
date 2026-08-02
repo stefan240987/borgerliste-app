@@ -39,7 +39,7 @@ DATA_LOCK_PATH = DATA_DIR / ".data.lock"
 DATA_LOCK_TIMEOUT_SECONDS = 15
 MASTER_SYNC_STAMP_PATH = DATA_DIR / ".master_sync_at"
 MASTER_SYNC_INTERVAL_SECONDS = 60
-APP_VERSION = "1.5.19"
+APP_VERSION = "1.5.20"
 DEFAULT_TRIAL_DAYS = 14
 DEFAULT_PUBLIC_SIGNUP_ENABLED = True
 MIN_TRIAL_DAYS = 1
@@ -196,7 +196,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "account_admin_gdpr_tab": "GDPR",
         "admin_retention_title": "Dataopbevaring",
         "admin_retention_label": "Slet inaktive borgere efter (måneder)",
-        "admin_retention_help": "0 = deaktiveret. Standard: 24 måneder uden statusaktivitet.",
+        "admin_retention_help": (
+            "Borgere uden opdateringer eller statusændringer i den valgte periode "
+            "slettes automatisk fra systemet. Sæt til 0 for at deaktivere automatisk sletning."
+        ),
         "admin_retention_saved": "Opbevaringsperiode gemt.",
         "admin_retention_invalid": "Angiv et helt tal mellem {min} og {max}.",
         "admin_retention_current": "Nuværende: {months} måneder (0 = deaktiveret).",
@@ -206,15 +209,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_user_deactivated_data_deleted": "Bruger {username} deaktiveret og data slettet.",
         "admin_audit_col_id": "Borger-ID",
         "admin_gdpr_processing_title": "Behandlingsfortegnelse (Art. 30)",
+        "admin_gdpr_retention_active": "Automatisk sletning efter {months} måneder uden aktivitet",
+        "admin_gdpr_retention_disabled": "Deaktiveret (0 mdr.)",
         "admin_gdpr_processing_body": (
             "| Punkt | Beskrivelse |\n"
             "|---|---|\n"
             "| Behandlingsaktivitet | Opfølgning på borgerkontakt |\n"
             "| Kategorier af registrerede | Borgere på kontaktliste |\n"
-            "| Kategorier af personoplysninger | Navn, adresse, telefon, kontaktstatus |\n"
+            "| Kategorier af personoplysninger | Navn, adresse, telefon, kontaktstatus "
+            "(CPR behandles kun midlertidigt i upload-sessionen og gemmes ikke) |\n"
             "| Modtagere | Autoriserede app-brugere i organisationen |\n"
             "| Overførsler til tredjelande | Ingen |\n"
-            "| Opbevaring | Konfigurerbar (standard 24 mdr.) |\n"
+            "| Opbevaring | {retention} |\n"
             "| Tekniske foranstaltninger | Login, kryptering, adgangskontrol, audit-log |"
         ),
         "user_audit_title": "Min aktivitet",
@@ -538,7 +544,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "account_admin_gdpr_tab": "GDPR",
         "admin_retention_title": "Data retention",
         "admin_retention_label": "Delete inactive citizens after (months)",
-        "admin_retention_help": "0 = disabled. Default: 24 months without status activity.",
+        "admin_retention_help": (
+            "Citizens with no updates or status changes during the selected period "
+            "are automatically deleted from the system. Set to 0 to disable automatic deletion."
+        ),
         "admin_retention_saved": "Retention period saved.",
         "admin_retention_invalid": "Enter a whole number between {min} and {max}.",
         "admin_retention_current": "Current: {months} months (0 = disabled).",
@@ -548,15 +557,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_user_deactivated_data_deleted": "User {username} deactivated and data deleted.",
         "admin_audit_col_id": "Citizen ID",
         "admin_gdpr_processing_title": "Processing record (Art. 30)",
+        "admin_gdpr_retention_active": "Automatic deletion after {months} months without activity",
+        "admin_gdpr_retention_disabled": "Disabled (0 mo.)",
         "admin_gdpr_processing_body": (
             "| Item | Description |\n"
             "|---|---|\n"
             "| Processing activity | Citizen contact follow-up |\n"
             "| Data subject categories | Citizens on contact list |\n"
-            "| Personal data categories | Name, address, phone, contact status |\n"
+            "| Personal data categories | Name, address, phone, contact status "
+            "(CPR is only processed temporarily in the upload session and is not stored) |\n"
             "| Recipients | Authorised app users in the organisation |\n"
             "| Transfers to third countries | None |\n"
-            "| Retention | Configurable (default 24 mo.) |\n"
+            "| Retention | {retention} |\n"
             "| Technical measures | Login, encryption, access control, audit log |"
         ),
         "user_audit_title": "My activity",

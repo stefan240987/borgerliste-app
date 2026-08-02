@@ -4,6 +4,21 @@ Alle væsentlige ændringer til Borgerflow dokumenteres her.
 
 Formatet er baseret på [Keep a Changelog](https://keepachangelog.com/da/1.1.0/).
 
+## [1.5.18] — 2026-08-02 (Én ad gangen i pagination)
+
+### Tilføjet
+
+- **Page size** — ny mulighed for at vise én borger ad gangen (`1` / «Én ad gangen»), med tilhørende sideinfo («Borger X af Y»).
+
+### Opgradering
+
+```bash
+docker pull ghcr.io/stefan240987/borgerliste-app:1.5.18
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
 ## [1.5.17] — 2026-08-02 (GDPR-flush ved idle-logout)
 
 ### Rettet
